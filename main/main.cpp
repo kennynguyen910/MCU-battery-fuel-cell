@@ -5,6 +5,8 @@
 #include "diagnostics.hpp"
 #include "esp_log.h"
 #include "packetizer_self_test.hpp"
+#include "network_consumer.hpp"
+#include "udp_config.hpp"
 
 // DEVELOPMENT ONLY: run the fixed packetizer self-test once at startup.
 constexpr bool ENABLE_PACKETIZER_SELF_TEST = true;
@@ -37,8 +39,12 @@ extern "C" void app_main()
     }
 
     static Diagnostics diagnostics;
+    static UdpTransport udp;
+    static NetworkConsumer network_consumer(wifi, udp, diagnostics);
+    ESP_LOGI(TAG, "UDP destination: %s:%u", udp_config::UDP_DESTINATION_IP,
+             static_cast<unsigned>(udp_config::UDP_DESTINATION_PORT));
     static Acquisition acquisition(source, diagnostics);
-    if (!acquisition.start()) {
+    if (!acquisition.start(&NetworkConsumer::consumeFrame, &network_consumer)) {
         ESP_LOGE(TAG, "Acquisition startup failed");
         return;
     }

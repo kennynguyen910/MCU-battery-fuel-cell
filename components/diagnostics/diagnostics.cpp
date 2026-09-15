@@ -48,6 +48,25 @@ void Diagnostics::recordConsumed(bool discontinuity)
     portEXIT_CRITICAL(&mutex_);
 }
 
+void Diagnostics::recordNetwork(bool packetized, bool transmitted, bool udp_error)
+{
+    portENTER_CRITICAL(&mutex_);
+    if (packetized) {
+        ++counters_.framesPacketized;
+    } else {
+        ++counters_.packetizerErrors;
+    }
+    if (transmitted) {
+        ++counters_.framesTransmitted;
+    } else {
+        ++counters_.networkFramesNotSent;
+    }
+    if (udp_error) {
+        ++counters_.udpSendErrors;
+    }
+    portEXIT_CRITICAL(&mutex_);
+}
+
 DiagnosticCounters Diagnostics::snapshot()
 {
     portENTER_CRITICAL(&mutex_);
@@ -104,6 +123,12 @@ void Diagnostics::reportingTask(void* context)
                  " dropped=%" PRIu32 " overflows=%" PRIu32 " ADC errors=%" PRIu32,
                  counters.framesAcquired, counters.framesConsumed, counters.framesDropped,
                  counters.bufferOverflows, counters.adcReadErrors);
+        ESP_LOGI(TAG, "Packetized=%" PRIu64 " transmitted=%" PRIu64
+                 " network not sent=%" PRIu64 " UDP errors=%" PRIu32
+                 " packetizer errors=%" PRIu32,
+                 counters.framesPacketized, counters.framesTransmitted,
+                 counters.networkFramesNotSent, counters.udpSendErrors,
+                 counters.packetizerErrors);
         ESP_LOGI(TAG, "Rate=%" PRIu64 ".%" PRIu64 " frames/s"
                  " late=%" PRIu32 " missed=%" PRIu32 " sequence gaps=%" PRIu32
                  " queue=%" PRIu32 "/%" PRIu32 " max queue=%" PRIu32

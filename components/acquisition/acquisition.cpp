@@ -32,11 +32,17 @@ static_assert(STRESS_EVERY_FRAMES > 0);
 static_assert(!ENABLE_CONSUMER_STRESS_TEST || pdMS_TO_TICKS(STRESS_PAUSE_MS) > 0);
 }
 
-bool Acquisition::start()
+bool Acquisition::start(FrameConsumer consumer, void* context)
 {
     if (started_) {
         return true;
     }
+    if (!consumer || !context) {
+        ESP_LOGE(TAG, "Invalid frame consumer");
+        return false;
+    }
+    consume_frame_ = consumer;
+    consumer_context_ = context;
     queue_ = xQueueCreateStatic(QUEUE_CAPACITY, sizeof(SampleFrame),
                                 queue_storage_, &queue_control_);
     if (!queue_) {
@@ -75,7 +81,7 @@ bool Acquisition::start()
         cleanup();
         return false;
     }
-    consumer_task_ = xTaskCreateStatic(&Acquisition::consumerTask, "consumer",
+    consumer_task_ = xTaskCreateStatic(&Acquisition::networkTask, "network",
         CONSUMER_STACK_BYTES, this, CONSUMER_PRIORITY,
         consumer_stack_, &consumer_control_);
     if (!consumer_task_ || !diagnostics_.startReporting(queue_, QUEUE_CAPACITY)) {
@@ -194,7 +200,7 @@ void Acquisition::acquisitionTask(void* context)
     }
 }
 
-void Acquisition::consumerTask(void* context)
+void Acquisition::networkTask(void* context)
 {
     auto& self = *static_cast<Acquisition*>(context);
     bool have_previous = false;
@@ -211,6 +217,7 @@ void Acquisition::consumerTask(void* context)
         self.diagnostics_.recordConsumed(discontinuity);
         previous_sequence = frame.sequence;
         have_previous = true;
+        self.consume_frame_(self.consumer_context_, frame);
 
         if constexpr (ENABLE_CONSUMER_STRESS_TEST) {
             if (++stress_frames >= STRESS_EVERY_FRAMES) {

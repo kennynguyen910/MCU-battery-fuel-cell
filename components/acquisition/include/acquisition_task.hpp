@@ -28,18 +28,21 @@ public:
 
     Acquisition(const Acquisition&) = delete;
     Acquisition& operator=(const Acquisition&) = delete;
-    bool start();
+    using FrameConsumer = void (*)(void*, const SampleFrame&);
+    bool start(FrameConsumer consumer, void* context);
 
 private:
     static bool onAlarm(gptimer_handle_t timer,
                         const gptimer_alarm_event_data_t* event, void* context);
     static void acquisitionTask(void* context);
-    static void consumerTask(void* context);
+    static void networkTask(void* context);
     void cleanup();
 
     void* source_;
     bool (*read_frame_)(void*, SampleFrame&);
     Diagnostics& diagnostics_;
+    FrameConsumer consume_frame_ = nullptr;
+    void* consumer_context_ = nullptr;
     QueueHandle_t queue_ = nullptr;
     StaticQueue_t queue_control_{};
     alignas(SampleFrame) std::uint8_t queue_storage_[
@@ -47,7 +50,7 @@ private:
 
     // ESP-IDF task stack sizes are expressed in bytes, including static tasks.
     static constexpr std::uint32_t ACQUISITION_STACK_BYTES = 4096;
-    static constexpr std::uint32_t CONSUMER_STACK_BYTES = 3072;
+    static constexpr std::uint32_t CONSUMER_STACK_BYTES = 4096;
     StackType_t acquisition_stack_[ACQUISITION_STACK_BYTES / sizeof(StackType_t)]{};
     StackType_t consumer_stack_[CONSUMER_STACK_BYTES / sizeof(StackType_t)]{};
     StaticTask_t acquisition_control_{};
