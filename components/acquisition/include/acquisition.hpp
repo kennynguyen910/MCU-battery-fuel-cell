@@ -1,11 +1,12 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
-// Internal measurement container, not a serialized wire format.
-struct SampleFrame {
-    uint32_t sequence;
-    uint64_t timestamp_us;
-    int32_t channels[16];
-    uint32_t status;
+// One complete frame of 16 cell-voltage channels; not a wire format.
+struct SampleFrame
+{
+    std::uint32_t sequence = 0;
+    std::uint64_t timestamp_us = 0;
+    std::int32_t channels[16]{};
+    std::uint32_t status = 0;
 };

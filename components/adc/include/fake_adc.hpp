@@ -2,14 +2,13 @@
 
 #include "acquisition.hpp"
 
-class FakeADC {
+class FakeADC
+{
 public:
-    // Reset the sequence counter. This fake requires no hardware setup.
+    // Simulate successful initialization without accessing hardware.
     bool init();
 
-    // Call init() first. Fills all fields; use from one acquisition task.
+    // Fill all channels with simulated microvolts; preserve frame metadata.
+    // Sequence and timestamp are owned by the acquisition subsystem.
     void readFrame(SampleFrame& frame);
-
-private:
-    uint32_t next_sequence_ = 0;
 };
