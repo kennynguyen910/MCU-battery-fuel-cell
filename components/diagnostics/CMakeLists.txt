@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "acquisition.cpp"
+    SRCS "diagnostics.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES freertos esp_driver_gptimer diagnostics
+    REQUIRES freertos
     PRIV_REQUIRES esp_timer log
 )
