@@ -1,14 +1,17 @@
 #pragma once
 
-#include "acquisition.hpp"
+#include <cstdint>
+#include "adc_interface.hpp"
 
-class FakeADC
+class FakeADC : public ADCInterface
 {
 public:
-    // Simulate successful initialization without accessing hardware.
-    bool init();
+    // Reset the deterministic simulation without accessing hardware.
+    bool init() override;
 
     // Fill all channels with simulated microvolts; preserve frame metadata.
-    // Sequence and timestamp are owned by the acquisition subsystem.
-    void readFrame(SampleFrame& frame);
+    bool readFrame(SampleFrame& frame) override;
+
+private:
+    std::uint32_t phase_ = 0;
 };

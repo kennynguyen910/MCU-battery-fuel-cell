@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.22)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(battery_monitor)
+#[=[
+# Preserved pasted project notes (not CMake commands).
 I am building firmware for a 16-channel Battery/Fuel Cell Monitor using:
 
 - ESP32-S3
@@ -279,3 +281,4 @@ Transport
 Wi-Fi or Ethernet
 
 The WiFiManager should only manage network connectivity and should not know anything about SampleFrame or ADC data.
+]=]

@@ -2,7 +2,8 @@
 
 #include <cstdint>
 
-// One complete frame of 16 cell-voltage channels; not a wire format.
+// One complete frame of 16 cell-voltage channels in conceptual microvolts;
+// 1.234567 V = 1234567 uV. This is an internal frame, not a wire format.
 struct SampleFrame
 {
     std::uint32_t sequence = 0;
