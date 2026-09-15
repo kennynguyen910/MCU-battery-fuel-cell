@@ -4,12 +4,24 @@
 #include "acquisition_task.hpp"
 #include "diagnostics.hpp"
 #include "esp_log.h"
+#include "packetizer_self_test.hpp"
+
+// DEVELOPMENT ONLY: run the fixed packetizer self-test once at startup.
+constexpr bool ENABLE_PACKETIZER_SELF_TEST = true;
 
 extern "C" void app_main()
 {
     constexpr const char* TAG = "battery_monitor";
     ESP_LOGI(TAG, "Battery/Fuel Cell Monitor starting");
     ESP_LOGI(TAG, "Board target: %s", board::config.target_name);
+
+    if constexpr (ENABLE_PACKETIZER_SELF_TEST) {
+        if (packetizer_test::runSelfTest()) {
+            ESP_LOGI(TAG, "Packetizer self-test PASS (88-byte version 1 packet)");
+        } else {
+            ESP_LOGE(TAG, "Packetizer self-test FAIL");
+        }
+    }
 
     // Static lifetime keeps Wi-Fi callbacks and Stage 2 task references valid.
     static WiFiManager wifi;
