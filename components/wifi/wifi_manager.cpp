@@ -1,5 +1,6 @@
 #include "wifi_manager.hpp"
 #include "wifi_config.hpp"
+#include "wifi_test_config.hpp"
 
 #include <cstring>
 #include "esp_log.h"
@@ -98,6 +99,13 @@ bool WiFiManager::init()
         return false;
     }
     driver_initialized_ = true;
+    if constexpr (wifi_test_config::HIGH_THROUGHPUT_TEST_MODE) {
+        if (!check(esp_wifi_set_ps(WIFI_PS_NONE), "Disable Wi-Fi power save for test")) {
+            cleanup();
+            return false;
+        }
+        ESP_LOGI(TAG, "DEVELOPMENT throughput test: Wi-Fi power save disabled (WIFI_PS_NONE)");
+    }
 
     wifi_config_t station_config{};
     static_assert(sizeof(WIFI_SSID) - 1 <= sizeof(station_config.sta.ssid),

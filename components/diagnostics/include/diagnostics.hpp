@@ -5,13 +5,20 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
-enum class NetworkOutcome { PacketizerError, WifiUnavailable, UdpNotReady, SendFailure, Transmitted };
+enum class NetworkOutcome { WifiUnavailable, UdpNotReady, SendFailure, Transmitted };
 
 struct DiagnosticCounters
 {
     std::uint64_t framesAcquired = 0;
     std::uint64_t framesConsumed = 0;
-    std::uint64_t framesPacketized = 0;
+    std::uint64_t framesPacketized = 0; // Compatibility alias of measurementFramesPacketized.
+    std::uint64_t measurementFramesPacketized = 0;
+    std::uint64_t measurementFramesTransmitted = 0;
+    std::uint64_t udpDatagramsAttempted = 0;
+    std::uint64_t udpDatagramsSent = 0;
+    std::uint64_t udpDatagramSendFailures = 0;
+    std::uint64_t udpFailedFrames = 0;
+    std::uint32_t batchFramesPerDatagram = 0; // Actual count in last processed batch.
     std::uint64_t framesTransmitted = 0;
     std::uint64_t networkFramesNotSent = 0;
     std::uint64_t networkUnavailableFrames = 0;
@@ -50,7 +57,9 @@ public:
                            std::uint32_t missed, std::uint32_t wake_lateness_us,
                            std::uint32_t read_time_us, std::uint32_t queue_depth);
     void recordConsumed(bool discontinuity);
-    void recordNetwork(NetworkOutcome outcome, bool wifi_connected, bool udp_ready,
+    void recordPacketized(bool success);
+    void recordNetwork(NetworkOutcome outcome, std::uint16_t frames,
+                       bool wifi_connected, bool udp_ready,
                        int socket_fd, int error, int sent_bytes);
     DiagnosticCounters snapshot();
     bool startReporting(QueueHandle_t queue, std::uint32_t capacity);

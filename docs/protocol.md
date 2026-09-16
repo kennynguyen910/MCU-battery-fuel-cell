@@ -118,3 +118,50 @@ A successful firmware build alone does not show the startup test has executed.
 The implementation uses only fixed-width integers and explicit byte writes.
 Repeat the startup self-test when switching between classic ESP32 and ESP32-S3.
 Neither GPIO assignments nor Wi-Fi connection state affect serialization.
+## Version 1 UDP batch datagram
+
+The 88-byte measurement packet above is unchanged. UDP now normally carries up
+to ten complete measurement packets in one datagram, using this separate envelope.
+All multibyte header integers are big-endian, with no padding.
+
+| Offset | Bytes | Field | Type / value |
+| --- | --- | --- | --- |
+| 0 | 2 | Batch magic | uint16, 0x4242 (ASCII BB) |
+| 2 | 1 | Batch version | uint8, 1 |
+| 3 | 1 | Message type | uint8, 2 (measurement batch) |
+| 4 | 2 | Frame count | uint16, 1 through 10 |
+| 6 | 4 | Batch sequence | uint32, wraps modulo 2^32 |
+| 10 | count * 88 | Measurement packets | Original Version 1 packets in acquisition order |
+
+Python header format: `!HBBHI`, exactly 10 bytes.
+Datagram length must equal `10 + count * 88`; no trailing bytes are accepted.
+Maximum payload is **890 bytes**; with normal 20-byte IPv4 and 8-byte UDP headers
+this is 918 bytes, below a typical 1500-byte MTU. Smaller path MTUs remain possible.
+Frame i (zero-based) starts at `10 + i * 88`.
+
+There is no duplicate batch CRC: each frame retains its original CRC over its
+first 84 bytes. The header is validated structurally, but is not covered by those
+CRCs; the UDP checksum also provides transport corruption detection. This format
+provides no authentication. Validate each embedded frame independently so one
+bad frame does not suppress other valid frames in a structurally valid batch.
+
+Batch sequence increments for each flushed batch, including failed or skipped
+batches; it resets on reboot. Loss detection uses individual measurement sequence
+numbers, so losing one full batch produces a ten-frame gap. The first received
+frame establishes the baseline; initial and final unobserved losses cannot be
+inferred. Version 1 still lacks a boot/session ID.
+
+Ten frames normally fill a batch within approximately 10 ms. A partial batch
+expires 20 ms after the first frame is buffered. NetworkTask checks expiration on
+every frame and while idle using a nominal 5 ms queue timeout, rounded to at least
+one FreeRTOS tick (plus scheduling latency). This permits flushing after acquisition
+stops; no timer callback sends packets and AcquisitionTask timing is unchanged.
+Only populated frame bytes are transmitted. There is no intentional decimation,
+per-frame application heap allocation, or indefinite retry.
+
+The Python receiver accepts both these batch datagrams and legacy standalone
+88-byte measurement packets. It counts UDP datagrams separately from contained
+frames. Invalid envelope lengths/headers increment invalid datagrams because the
+number of contained frames cannot be trusted; invalid contained frames increment
+invalid frames and, where applicable, CRC errors. Sequence gaps remain cumulative
+forward-gap estimates; duplicate/backward arrivals do not inflate missing counts.

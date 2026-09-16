@@ -44,7 +44,8 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "UDP destination: %s:%u", udp_config::UDP_DESTINATION_IP,
              static_cast<unsigned>(udp_config::UDP_DESTINATION_PORT));
     static Acquisition acquisition(source, diagnostics);
-    if (!acquisition.start(&NetworkConsumer::consumeFrame, &network_consumer)) {
+    if (!acquisition.start(&NetworkConsumer::consumeFrame, &network_consumer,
+                           &NetworkConsumer::flushExpired)) {
         ESP_LOGE(TAG, "Acquisition startup failed");
         return;
     }

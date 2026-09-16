@@ -49,27 +49,45 @@ void Diagnostics::recordConsumed(bool discontinuity)
     portEXIT_CRITICAL(&mutex_);
 }
 
-void Diagnostics::recordNetwork(NetworkOutcome outcome, bool wifi_connected,
-                                bool udp_ready, int socket_fd, int error, int sent_bytes)
+void Diagnostics::recordPacketized(bool success)
+{
+    portENTER_CRITICAL(&mutex_);
+    if (success) {
+        ++counters_.framesPacketized;
+        ++counters_.measurementFramesPacketized;
+    } else {
+        ++counters_.packetizerErrors;
+    }
+    portEXIT_CRITICAL(&mutex_);
+}
+
+void Diagnostics::recordNetwork(NetworkOutcome outcome, std::uint16_t frames,
+                                bool wifi_connected, bool udp_ready,
+                                int socket_fd, int error, int sent_bytes)
 {
     portENTER_CRITICAL(&mutex_);
     counters_.wifiConnected = wifi_connected;
     counters_.udpReady = udp_ready;
     counters_.socketFd = socket_fd;
-    if (outcome == NetworkOutcome::PacketizerError) {
-        ++counters_.packetizerErrors;
-    } else {
-        ++counters_.framesPacketized;
-        switch (outcome) {
-        case NetworkOutcome::WifiUnavailable: ++counters_.networkUnavailableFrames; break;
-        case NetworkOutcome::UdpNotReady: ++counters_.udpNotReadyFrames; break;
-        case NetworkOutcome::SendFailure: ++counters_.udpSendFailures; break;
-        case NetworkOutcome::Transmitted: ++counters_.framesTransmitted; break;
-        case NetworkOutcome::PacketizerError: break;
-        }
+    counters_.batchFramesPerDatagram = frames;
+    switch (outcome) {
+    case NetworkOutcome::WifiUnavailable: counters_.networkUnavailableFrames += frames; break;
+    case NetworkOutcome::UdpNotReady: counters_.udpNotReadyFrames += frames; break;
+    case NetworkOutcome::SendFailure:
+        ++counters_.udpDatagramsAttempted;
+        ++counters_.udpDatagramSendFailures;
+        ++counters_.udpSendFailures; // Datagram failures, not frame failures.
+        counters_.udpFailedFrames += frames;
+        break;
+    case NetworkOutcome::Transmitted:
+        ++counters_.udpDatagramsAttempted;
+        ++counters_.udpDatagramsSent;
+        counters_.framesTransmitted += frames;
+        counters_.measurementFramesTransmitted += frames;
+        break;
     }
     counters_.networkFramesNotSent = counters_.networkUnavailableFrames +
-        counters_.udpNotReadyFrames + counters_.udpSendFailures;
+        counters_.udpNotReadyFrames + counters_.udpFailedFrames;
     if (outcome == NetworkOutcome::UdpNotReady || outcome == NetworkOutcome::SendFailure) {
         ++counters_.udpSendErrors; // Compatibility: setup plus send errors.
         if (outcome == NetworkOutcome::UdpNotReady) ++counters_.udpInitFailures;
@@ -136,12 +154,16 @@ void Diagnostics::reportingTask(void* context)
                  " dropped=%" PRIu32 " overflows=%" PRIu32 " ADC errors=%" PRIu32,
                  counters.framesAcquired, counters.framesConsumed, counters.framesDropped,
                  counters.bufferOverflows, counters.adcReadErrors);
-        ESP_LOGI(TAG, "Packetized=%" PRIu64 " transmitted=%" PRIu64
+        ESP_LOGI(TAG, "Packetized=%" PRIu64 " measurement frames transmitted=%" PRIu64
                  " network not sent=%" PRIu64 " UDP errors=%" PRIu32
                  " packetizer errors=%" PRIu32,
                  counters.framesPacketized, counters.framesTransmitted,
                  counters.networkFramesNotSent, counters.udpSendErrors,
                  counters.packetizerErrors);
+        ESP_LOGI(TAG, "UDP datagrams attempted=%" PRIu64 " sent=%" PRIu64
+                 " send failures=%" PRIu64 " batchFramesPerDatagram=%" PRIu32,
+                 counters.udpDatagramsAttempted, counters.udpDatagramsSent,
+                 counters.udpDatagramSendFailures, counters.batchFramesPerDatagram);
         ESP_LOGI(TAG, "Network: wifiConnected=%s udpReady=%s socketFd=%d",
                  counters.wifiConnected ? "true" : "false",
                  counters.udpReady ? "true" : "false", counters.socketFd);

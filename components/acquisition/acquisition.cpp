@@ -32,7 +32,7 @@ static_assert(STRESS_EVERY_FRAMES > 0);
 static_assert(!ENABLE_CONSUMER_STRESS_TEST || pdMS_TO_TICKS(STRESS_PAUSE_MS) > 0);
 }
 
-bool Acquisition::start(FrameConsumer consumer, void* context)
+bool Acquisition::start(FrameConsumer consumer, void* context, IdleConsumer idle)
 {
     if (started_) {
         return true;
@@ -42,6 +42,7 @@ bool Acquisition::start(FrameConsumer consumer, void* context)
         return false;
     }
     consume_frame_ = consumer;
+    idle_consumer_ = idle;
     consumer_context_ = context;
     queue_ = xQueueCreateStatic(QUEUE_CAPACITY, sizeof(SampleFrame),
                                 queue_storage_, &queue_control_);
@@ -209,7 +210,11 @@ void Acquisition::networkTask(void* context)
     SampleFrame frame{};
 
     for (;;) {
-        if (xQueueReceive(self.queue_, &frame, portMAX_DELAY) != pdTRUE) {
+        // Only the consumer wait changes: producer timing/ISR remain untouched.
+        const TickType_t wait = self.idle_consumer_ ?
+            std::max<TickType_t>(1, pdMS_TO_TICKS(5)) : portMAX_DELAY;
+        if (xQueueReceive(self.queue_, &frame, wait) != pdTRUE) {
+            if (self.idle_consumer_) self.idle_consumer_(self.consumer_context_);
             continue;
         }
         // Unsigned arithmetic intentionally accepts the uint32 sequence rollover.

@@ -1,4 +1,4 @@
-r"""Receive Version 1 Battery Monitor measurements; see docs/protocol.md.
+r"""Receive Version 1 Battery Monitor batches and standalone measurements; see docs/protocol.md.
 
 Run: python .\tools\udp_receiver.py
 Sequence statistics assume one transmitting device. Missing counts are inferred
@@ -23,6 +23,34 @@ PROTOCOL_VERSION = 1
 MEASUREMENT_TYPE = 1
 SEQUENCE_MASK = 0xFFFFFFFF
 REPORT_INTERVAL = 1.0
+# Version 1 batch envelope, docs/protocol.md. Reuse the existing frame decoder.
+BATCH_FORMAT = struct.Struct("!HBBHI")
+BATCH_MAGIC = 0x4242
+BATCH_VERSION = 1
+BATCH_TYPE = 2
+MAX_BATCH_FRAMES = 10
+
+
+def parse_datagram(data):
+    """Validate framing, returning complete 88-byte frame slices.
+
+    Individual CRC/header validation stays in parse_packet; a bad frame does
+    not prevent decoding the other frames in a structurally valid batch.
+    Standalone measurement datagrams remain supported during migration.
+    """
+    if data[:2] != b"BB" and len(data) == PACKET_SIZE:
+        return (data,)
+    if len(data) < BATCH_FORMAT.size:
+        raise InvalidPacket("short batch header")
+    magic, version, kind, count, _batch_sequence = BATCH_FORMAT.unpack_from(data)
+    if magic != BATCH_MAGIC or version != BATCH_VERSION or kind != BATCH_TYPE:
+        raise InvalidPacket("invalid batch magic, version or message type")
+    if not 1 <= count <= MAX_BATCH_FRAMES:
+        raise InvalidPacket("invalid batch frame count")
+    if len(data) != BATCH_FORMAT.size + count * PACKET_SIZE:
+        raise InvalidPacket("batch length does not match frame count")
+    return tuple(data[offset:offset + PACKET_SIZE]
+                 for offset in range(BATCH_FORMAT.size, len(data), PACKET_SIZE))
 
 
 @dataclass(frozen=True)
@@ -63,6 +91,8 @@ def parse_packet(data):
 
 @dataclass
 class Statistics:
+    udp_datagrams_received: int = 0
+    udp_datagrams_invalid: int = 0  # Invalid outer framing; frame validity is separate.
     packets_received: int = 0
     packets_valid: int = 0
     packets_invalid: int = 0
@@ -74,6 +104,17 @@ class Statistics:
     latest: object = None
 
     def receive(self, data):
+        self.udp_datagrams_received += 1
+        try:
+            frames = parse_datagram(data)
+        except InvalidPacket:
+            self.udp_datagrams_invalid += 1
+            return
+        for frame in frames:
+            self.receive_frame(frame)
+
+    def receive_frame(self, data):
+        # Historical packets_* names now count measurement frames, not datagrams.
         self.packets_received += 1
         try:
             frame = parse_packet(data)
@@ -97,18 +138,21 @@ class Statistics:
         self.previous_sequence = frame.sequence
         self.latest = frame
 
-    def report(self, rate, final=False):
+    def report(self, rate, final=False, datagram_rate=0.0):
         title = "Final statistics" if final else "Battery Monitor UDP"
         lines = [
             f"\n=== {title} ===",
-            f"Packets received:  {self.packets_received}",
-            f"Valid:             {self.packets_valid}",
+            f"UDP datagrams:     {self.udp_datagrams_received}",
+            f"Invalid datagrams: {self.udp_datagrams_invalid}",
+            f"Measurement frames received: {self.packets_received}",
+            f"Valid frames:      {self.packets_valid}",
             f"Missing (gaps):    {self.packets_missing}",
-            f"Invalid:           {self.packets_invalid}",
+            f"Invalid frames:    {self.packets_invalid}",
             f"CRC errors:        {self.crc_errors}",
             f"Duplicates:        {self.duplicates}",
             f"Out of order:      {self.out_of_order}",
-            f"Receive rate:      {rate:.1f} packets/s",
+            f"Measurement rate:  {rate:.1f} frames/s",
+            f"UDP receive rate:  {datagram_rate:.1f} datagrams/s",
         ]
         if self.latest is None:
             lines.append("Latest frame:      waiting for a valid measurement")
@@ -129,10 +173,11 @@ def main():
     statistics = Statistics()
     started = last_report = time.monotonic()
     received_at_report = 0
+    datagrams_at_report = 0
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
             receiver.bind(LISTEN_ADDRESS)
-            print("Listening on 0.0.0.0:5005 for 88-byte binary measurements.",
+            print("Listening on 0.0.0.0:5005 for binary measurement batches.",
                   flush=True)
             print("Use one ESP32; restart the receiver after an ESP32 reboot.",
                   flush=True)
@@ -151,9 +196,12 @@ def main():
                 if elapsed >= REPORT_INTERVAL:
                     rate = ((statistics.packets_received - received_at_report)
                             / elapsed)
-                    statistics.report(rate)
+                    datagram_rate = ((statistics.udp_datagrams_received - datagrams_at_report)
+                                     / elapsed)
+                    statistics.report(rate, datagram_rate=datagram_rate)
                     last_report = now
                     received_at_report = statistics.packets_received
+                    datagrams_at_report = statistics.udp_datagrams_received
     except KeyboardInterrupt:
         print("\nUDP receiver stopped.", flush=True)
     except OSError as error:
@@ -162,7 +210,9 @@ def main():
     finally:
         elapsed = time.monotonic() - started
         statistics.report(statistics.packets_received / elapsed
-                          if elapsed > 0 else 0.0, final=True)
+                          if elapsed > 0 else 0.0, final=True,
+                          datagram_rate=statistics.udp_datagrams_received / elapsed
+                          if elapsed > 0 else 0.0)
     return 0
 
 

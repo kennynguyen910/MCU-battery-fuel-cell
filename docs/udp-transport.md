@@ -31,14 +31,17 @@ The same socket is reused for successful sends. No application per-frame heap
 allocation occurs; lwIP uses its bounded internal networking buffers.
 
 Every dequeued frame is counted as consumed and checked for sequence continuity.
-A fixed 88-byte packet is serialized, then connection state is checked.
+Each frame is serialized as the original 88-byte packet, then appended to a
+fixed 890-byte batch buffer. Ten frames trigger one send; partial batches expire
+after 20 ms. Connection state is checked at flush time. See docs/protocol.md
+for the exact 10-byte batch header and idle-flush policy.
 Disconnected frames are discarded after counting networkFramesNotSent.
 The socket is closed on observed disconnection. No retention/replay backlog exists.
 
-Every connected frame attempts socket initialization if needed and then sends.
+Every flushed connected batch attempts socket initialization if needed and then sends.
 There is no retry cooldown or intentional decimation. Send failures drop only
-that frame. Transient errors retain the socket; EBADF/ENOTSOCK invalidate it so
-the next connected frame recreates it. Wi-Fi disconnection closes the socket;
+that batch. Transient errors retain the socket; EBADF/ENOTSOCK invalidate it so
+the next connected batch recreates it. Wi-Fi disconnection closes the socket;
 reconnection resumes sending without reboot. Logs remain rate-limited to five seconds.
 The former one-second cooldown after each send error skipped roughly 1000 frames
 per error; it was removed during the Stage 3 UDP diagnostic investigation.
@@ -56,8 +59,12 @@ Added fields:
 | framesTransmitted | Full datagrams accepted by the local socket API |
 | networkUnavailableFrames | Packetized frames skipped because Wi-Fi lacks an IP |
 | udpNotReadyFrames | Packetized frames whose socket initialization failed |
-| udpSendFailures | Packetized frames whose send attempt failed, including short sends |
-| networkFramesNotSent | Sum of the three preceding mutually exclusive reasons |
+| udpSendFailures / udpDatagramSendFailures | Failed batch send attempts, including short sends |
+| udpFailedFrames | Measurement frames inside failed send attempts |
+| udpDatagramsAttempted / udpDatagramsSent | Batch send attempts / successful sends |
+| measurementFramesPacketized / measurementFramesTransmitted | Explicit frame totals (existing framesPacketized / framesTransmitted aliases preserved) |
+| batchFramesPerDatagram | Actual count in the last processed batch, normally 10 |
+| networkFramesNotSent | networkUnavailableFrames + udpNotReadyFrames + udpFailedFrames |
 | udpInitFailures / udpShortSends | Setup failure / short-send attempt counts |
 | udpSendErrors | Actual socket setup/send failures, not disconnected frames |
 | packetizerErrors | Serialization returned false |
@@ -65,8 +72,9 @@ Added fields:
 UDP acceptance does not confirm laptop receipt; UDP has no acknowledgment or
 retransmission in this stage. After integration finishes processing a frame,
 framesConsumed = framesTransmitted + networkFramesNotSent + packetizerErrors, and
-framesPacketized = framesConsumed - packetizerErrors. Snapshots can differ by
-one frame while a consumer operation is in flight.
+framesPacketized = framesConsumed - packetizerErrors. While batching, up to ten
+packetized frames may still be pending (or a serialization operation in flight),
+so the first equality applies after the pending batch has been flushed.
 
 framesDropped/bufferOverflows measure loss BEFORE queue consumption.
 networkFramesNotSent measures loss AFTER consumption; it never increments the
@@ -88,7 +96,7 @@ serial port. Check five-second diagnostics:
 - router off: acquisition and consumption continue, network-unsent increases;
 - router restored: transmitted resumes without reboot;
 - temporary transport failure: UDP errors increase only for actual attempts,
-  the next frame attempts sending/recreation immediately, queue continues draining;
+  the next batch attempts sending/recreation immediately, queue continues draining;
 - development stress: queue drops remain distinct from network-unsent.
 
 Five-second diagnostics include wifiConnected, udpReady and socketFd, captured
@@ -106,3 +114,27 @@ At 1000 frames/s payload bandwidth is
 Repeat rate/queue, socket recovery and Wi-Fi outage tests on ESP32-S3.
 All APIs are ESP-IDF/lwIP equivalents on both targets; no GPIO mappings are used.
 Actual radio throughput, scheduling and network buffer pressure may differ.
+## Development throughput test and 60-second acceptance run
+
+`components/wifi/include/wifi_test_config.hpp` defaults
+`HIGH_THROUGHPUT_TEST_MODE = true`. It calls `esp_wifi_set_ps(WIFI_PS_NONE)` after
+driver initialization, logs the test policy once, and does not change connection
+or reconnection behavior. Set false to leave ESP-IDF's default power-saving policy.
+This trades battery life for reduced modem-sleep buffering during development;
+it is not the final battery-power policy. A failure to set the policy is reported
+and uses the existing startup error handling.
+
+After flashing the classic ESP32, run `python .\tools\udp_receiver.py` for at
+least 60 seconds. Compare counter deltas: about 60,000 acquired/consumed/received
+measurement frames and 6,000 UDP datagrams; target zero acquisition drops,
+overflows, ADC/packetizer/CRC errors, ideally zero missing frames and zero or rare
+UDP send failures. Rate reports should show about 1000 frames/s and 100 datagrams/s.
+These are hardware acceptance targets, not guaranteed results from a build.
+
+One failed ten-frame send increases UDP send failures by one and network unsent
+frames by ten. Setup failure and Wi-Fi outage also count every contained frame,
+in separate mutually exclusive reasons, without changing acquisition-drop counters.
+Failed batches are cleared and processing continues; no indefinite replay or retry
+blocks the consumer. During normal operation all samples are included, without
+measurement-rate reduction or decimation. Payload bandwidth remains 88,000 frame
+bytes/s plus approximately 1000 batch-header bytes/s, before UDP/IP/Wi-Fi overhead.

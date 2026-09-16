@@ -29,7 +29,8 @@ public:
     Acquisition(const Acquisition&) = delete;
     Acquisition& operator=(const Acquisition&) = delete;
     using FrameConsumer = void (*)(void*, const SampleFrame&);
-    bool start(FrameConsumer consumer, void* context);
+    using IdleConsumer = void (*)(void*);
+    bool start(FrameConsumer consumer, void* context, IdleConsumer idle = nullptr);
 
 private:
     static bool onAlarm(gptimer_handle_t timer,
@@ -42,6 +43,7 @@ private:
     bool (*read_frame_)(void*, SampleFrame&);
     Diagnostics& diagnostics_;
     FrameConsumer consume_frame_ = nullptr;
+    IdleConsumer idle_consumer_ = nullptr;
     void* consumer_context_ = nullptr;
     QueueHandle_t queue_ = nullptr;
     StaticQueue_t queue_control_{};
