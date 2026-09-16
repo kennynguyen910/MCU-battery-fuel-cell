@@ -1,8 +1,6 @@
 #include "network_consumer.hpp"
 
 #include "packetizer.hpp"
-#include "udp_config.hpp"
-#include "esp_timer.h"
 
 void NetworkConsumer::consumeFrame(void* context, const SampleFrame& frame)
 {
@@ -11,35 +9,30 @@ void NetworkConsumer::consumeFrame(void* context, const SampleFrame& frame)
 
 void NetworkConsumer::consume(const SampleFrame& frame)
 {
+    const bool connected = wifi_.isConnected();
+    const auto record = [&](NetworkOutcome outcome, int error = 0, int sent = -1) {
+        diagnostics_.recordNetwork(outcome, connected, udp_.isReady(),
+                                   udp_.socketFd(), error, sent);
+    };
     MeasurementPacket packet{};
     if (!Packetizer::serializeMeasurement(frame, packet)) {
-        diagnostics_.recordNetwork(false, false, false);
+        record(NetworkOutcome::PacketizerError);
         return;
     }
-    if (!wifi_.isConnected()) {
+    if (!connected) {
         udp_.close();
-        next_socket_retry_us_ = 0;
-        diagnostics_.recordNetwork(true, false, false);
+        record(NetworkOutcome::WifiUnavailable);
         return;
     }
-
-    const std::int64_t now_us = esp_timer_get_time();
-    if (!udp_.isOpen()) {
-        if (now_us < next_socket_retry_us_) {
-            diagnostics_.recordNetwork(true, false, false);
-            return;
-        }
-        if (!udp_.init()) {
-            next_socket_retry_us_ = now_us +
-                static_cast<std::int64_t>(udp_config::SOCKET_RETRY_MS) * 1000;
-            diagnostics_.recordNetwork(true, false, true);
-            return;
-        }
+    // Every connected frame attempts initialization if necessary, then send.
+    // No cooldown, delay, decimation, acknowledgment wait or same-frame retry.
+    if (!udp_.isReady() && !udp_.init()) {
+        record(NetworkOutcome::UdpNotReady, udp_.lastError());
+        return;
     }
-    const bool transmitted = udp_.send(packet.data(), packet.size());
-    if (!transmitted) {
-        next_socket_retry_us_ = now_us +
-            static_cast<std::int64_t>(udp_config::SOCKET_RETRY_MS) * 1000;
+    if (udp_.send(packet.data(), packet.size())) {
+        record(NetworkOutcome::Transmitted);
+    } else {
+        record(NetworkOutcome::SendFailure, udp_.lastError(), udp_.lastSendBytes());
     }
-    diagnostics_.recordNetwork(true, transmitted, !transmitted);
 }

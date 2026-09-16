@@ -35,13 +35,13 @@ A fixed 88-byte packet is serialized, then connection state is checked.
 Disconnected frames are discarded after counting networkFramesNotSent.
 The socket is closed on observed disconnection. No retention/replay backlog exists.
 
-On socket setup or send failure, udpSendErrors increases, the frame is unsent,
-and the handler waits at least SOCKET_RETRY_MS (default 1000 ms) before trying to
-create a socket again. During that delay it keeps draining the queue and counts
-frames as network-unsent; those skipped frames do not each count as a UDP error.
-The transport closes its socket on an actual send failure, including temporary
-buffer exhaustion, so recovery uses a fresh socket. After Wi-Fi reconnects,
-sending resumes on the next frame without reboot. There are no per-packet logs.
+Every connected frame attempts socket initialization if needed and then sends.
+There is no retry cooldown or intentional decimation. Send failures drop only
+that frame. Transient errors retain the socket; EBADF/ENOTSOCK invalidate it so
+the next connected frame recreates it. Wi-Fi disconnection closes the socket;
+reconnection resumes sending without reboot. Logs remain rate-limited to five seconds.
+The former one-second cooldown after each send error skipped roughly 1000 frames
+per error; it was removed during the Stage 3 UDP diagnostic investigation.
 Nonblocking flags prevent waiting for send buffer availability; CPU/scheduling
 cost still requires timing validation on real hardware.
 
@@ -54,13 +54,17 @@ Added fields:
 | --- | --- |
 | framesPacketized | Frames serialized successfully |
 | framesTransmitted | Full datagrams accepted by the local socket API |
-| networkFramesNotSent | Consumed frames not sent: serialization failure, Wi-Fi down, retry cooldown, or transport failure |
-| udpSendErrors | Actual socket setup/send failures, not disconnected/cooldown frames |
+| networkUnavailableFrames | Packetized frames skipped because Wi-Fi lacks an IP |
+| udpNotReadyFrames | Packetized frames whose socket initialization failed |
+| udpSendFailures | Packetized frames whose send attempt failed, including short sends |
+| networkFramesNotSent | Sum of the three preceding mutually exclusive reasons |
+| udpInitFailures / udpShortSends | Setup failure / short-send attempt counts |
+| udpSendErrors | Actual socket setup/send failures, not disconnected frames |
 | packetizerErrors | Serialization returned false |
 
 UDP acceptance does not confirm laptop receipt; UDP has no acknowledgment or
 retransmission in this stage. After integration finishes processing a frame,
-framesConsumed = framesTransmitted + networkFramesNotSent, and
+framesConsumed = framesTransmitted + networkFramesNotSent + packetizerErrors, and
 framesPacketized = framesConsumed - packetizerErrors. Snapshots can differ by
 one frame while a consumer operation is in flight.
 
@@ -84,14 +88,19 @@ serial port. Check five-second diagnostics:
 - router off: acquisition and consumption continue, network-unsent increases;
 - router restored: transmitted resumes without reboot;
 - temporary transport failure: UDP errors increase only for actual attempts,
-  recovery attempts occur at most once per second, queue continues draining;
+  the next frame attempts sending/recreation immediately, queue continues draining;
 - development stress: queue drops remain distinct from network-unsent.
 
-Version 1 packets are binary; the existing tools/udp_receiver.py is a plain-text
-scratch receiver and does not decode this packet format. It may show unreadable
-text. No binary Python receiver changes are part of Stage 3B.
-Use a binary-aware receiver following docs/protocol.md or capture UDP packets
-to verify 88-byte datagrams and CRC. At 1000 frames/s payload bandwidth is
+Five-second diagnostics include wifiConnected, udpReady and socketFd, captured
+by the socket-owning task. The last failure's errno, strerror and sentBytes are
+historical, retained even after recovery; sentBytes >= 0 identifies a short send.
+A ready socket has fd >= 0. The same app_main WiFiManager supplies IP events and
+NetworkConsumer connection checks. Runtime logs are needed to verify radio state
+and identify the actual send error; source inspection alone cannot establish it.
+
+Version 1 packets are binary. Run python .\tools\udp_receiver.py on the laptop
+for CRC validation, voltages, rate and sequence-gap statistics.
+At 1000 frames/s payload bandwidth is
 88,000 bytes/s, before UDP/IP/Wi-Fi overhead.
 
 Repeat rate/queue, socket recovery and Wi-Fi outage tests on ESP32-S3.

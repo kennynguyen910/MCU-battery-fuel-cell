@@ -20,5 +20,5 @@ private:
     WiFiManager& wifi_;
     UdpTransport& udp_;
     Diagnostics& diagnostics_;
-    std::int64_t next_socket_retry_us_ = 0;
+
 };

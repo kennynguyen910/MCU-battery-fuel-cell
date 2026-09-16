@@ -41,6 +41,7 @@ bool UdpTransport::init()
 
 bool UdpTransport::send(const std::uint8_t* data, std::size_t length)
 {
+    last_send_bytes_ = -1;
     // IPv4 UDP maximum payload is 65507 bytes; invalid requests never reach lwIP.
     if (!data || length == 0 || length > 65507) {
         last_error_ = EINVAL;
@@ -53,10 +54,14 @@ bool UdpTransport::send(const std::uint8_t* data, std::size_t length)
     const auto sent = sendto(socket_, data, length, MSG_DONTWAIT,
                              reinterpret_cast<const sockaddr*>(&destination_),
                              sizeof(destination_));
+    last_send_bytes_ = static_cast<int>(sent);
     if (sent < 0 || static_cast<std::size_t>(sent) != length) {
         last_error_ = sent < 0 ? errno : EIO;
-        // Drop this datagram. The owning task controls bounded socket recovery.
-        close();
+        // Buffer pressure (EAGAIN/ENOBUFS/ENOMEM) does not invalidate a socket.
+        // Drop only this frame; attempt the next frame without a cooldown.
+        if (last_error_ == EBADF || last_error_ == ENOTSOCK) {
+            close();
+        }
         return false;
     }
     last_error_ = 0;

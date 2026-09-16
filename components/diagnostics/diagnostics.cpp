@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstring>
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -48,21 +49,33 @@ void Diagnostics::recordConsumed(bool discontinuity)
     portEXIT_CRITICAL(&mutex_);
 }
 
-void Diagnostics::recordNetwork(bool packetized, bool transmitted, bool udp_error)
+void Diagnostics::recordNetwork(NetworkOutcome outcome, bool wifi_connected,
+                                bool udp_ready, int socket_fd, int error, int sent_bytes)
 {
     portENTER_CRITICAL(&mutex_);
-    if (packetized) {
-        ++counters_.framesPacketized;
-    } else {
+    counters_.wifiConnected = wifi_connected;
+    counters_.udpReady = udp_ready;
+    counters_.socketFd = socket_fd;
+    if (outcome == NetworkOutcome::PacketizerError) {
         ++counters_.packetizerErrors;
-    }
-    if (transmitted) {
-        ++counters_.framesTransmitted;
     } else {
-        ++counters_.networkFramesNotSent;
+        ++counters_.framesPacketized;
+        switch (outcome) {
+        case NetworkOutcome::WifiUnavailable: ++counters_.networkUnavailableFrames; break;
+        case NetworkOutcome::UdpNotReady: ++counters_.udpNotReadyFrames; break;
+        case NetworkOutcome::SendFailure: ++counters_.udpSendFailures; break;
+        case NetworkOutcome::Transmitted: ++counters_.framesTransmitted; break;
+        case NetworkOutcome::PacketizerError: break;
+        }
     }
-    if (udp_error) {
-        ++counters_.udpSendErrors;
+    counters_.networkFramesNotSent = counters_.networkUnavailableFrames +
+        counters_.udpNotReadyFrames + counters_.udpSendFailures;
+    if (outcome == NetworkOutcome::UdpNotReady || outcome == NetworkOutcome::SendFailure) {
+        ++counters_.udpSendErrors; // Compatibility: setup plus send errors.
+        if (outcome == NetworkOutcome::UdpNotReady) ++counters_.udpInitFailures;
+        if (outcome == NetworkOutcome::SendFailure && sent_bytes >= 0) ++counters_.udpShortSends;
+        counters_.lastUdpError = error;
+        counters_.lastSendBytes = sent_bytes;
     }
     portEXIT_CRITICAL(&mutex_);
 }
@@ -129,6 +142,19 @@ void Diagnostics::reportingTask(void* context)
                  counters.framesPacketized, counters.framesTransmitted,
                  counters.networkFramesNotSent, counters.udpSendErrors,
                  counters.packetizerErrors);
+        ESP_LOGI(TAG, "Network: wifiConnected=%s udpReady=%s socketFd=%d",
+                 counters.wifiConnected ? "true" : "false",
+                 counters.udpReady ? "true" : "false", counters.socketFd);
+        ESP_LOGI(TAG, "WiFi unavailable=%" PRIu64 " UDP not ready=%" PRIu64
+                 " UDP send failures=%" PRIu64 " init failures=%" PRIu64
+                 " short sends=%" PRIu64,
+                 counters.networkUnavailableFrames, counters.udpNotReadyFrames,
+                 counters.udpSendFailures, counters.udpInitFailures, counters.udpShortSends);
+        if (counters.udpSendErrors) {
+            ESP_LOGW(TAG, "Last UDP failure (historical): errno=%d (%s) sentBytes=%d",
+                     counters.lastUdpError, std::strerror(counters.lastUdpError),
+                     counters.lastSendBytes);
+        }
         ESP_LOGI(TAG, "Rate=%" PRIu64 ".%" PRIu64 " frames/s"
                  " late=%" PRIu32 " missed=%" PRIu32 " sequence gaps=%" PRIu32
                  " queue=%" PRIu32 "/%" PRIu32 " max queue=%" PRIu32

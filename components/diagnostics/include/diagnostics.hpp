@@ -5,6 +5,8 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+enum class NetworkOutcome { PacketizerError, WifiUnavailable, UdpNotReady, SendFailure, Transmitted };
+
 struct DiagnosticCounters
 {
     std::uint64_t framesAcquired = 0;
@@ -12,6 +14,16 @@ struct DiagnosticCounters
     std::uint64_t framesPacketized = 0;
     std::uint64_t framesTransmitted = 0;
     std::uint64_t networkFramesNotSent = 0;
+    std::uint64_t networkUnavailableFrames = 0;
+    std::uint64_t udpNotReadyFrames = 0;
+    std::uint64_t udpSendFailures = 0;
+    std::uint64_t udpInitFailures = 0;
+    std::uint64_t udpShortSends = 0;
+    bool wifiConnected = false;
+    bool udpReady = false;
+    int socketFd = -1;
+    int lastUdpError = 0;
+    int lastSendBytes = -1;
     std::uint32_t udpSendErrors = 0;
     std::uint32_t packetizerErrors = 0;
     std::uint32_t framesDropped = 0;
@@ -38,7 +50,8 @@ public:
                            std::uint32_t missed, std::uint32_t wake_lateness_us,
                            std::uint32_t read_time_us, std::uint32_t queue_depth);
     void recordConsumed(bool discontinuity);
-    void recordNetwork(bool packetized, bool transmitted, bool udp_error);
+    void recordNetwork(NetworkOutcome outcome, bool wifi_connected, bool udp_ready,
+                       int socket_fd, int error, int sent_bytes);
     DiagnosticCounters snapshot();
     bool startReporting(QueueHandle_t queue, std::uint32_t capacity);
     // Used to unwind startup failure before the sampling timer starts.
