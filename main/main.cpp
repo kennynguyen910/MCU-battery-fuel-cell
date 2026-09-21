@@ -7,6 +7,8 @@
 #include "packetizer_self_test.hpp"
 #include "network_consumer.hpp"
 #include "udp_config.hpp"
+#include "ble_manager.hpp"
+#include "ble_config.hpp"
 
 // DEVELOPMENT ONLY: run the fixed packetizer self-test once at startup.
 constexpr bool ENABLE_PACKETIZER_SELF_TEST = true;
@@ -39,15 +41,25 @@ extern "C" void app_main()
     }
 
     static Diagnostics diagnostics;
+    static LatestFrameStore latest;
     static UdpTransport udp;
     static NetworkConsumer network_consumer(wifi, udp, diagnostics);
     ESP_LOGI(TAG, "UDP destination: %s:%u", udp_config::UDP_DESTINATION_IP,
              static_cast<unsigned>(udp_config::UDP_DESTINATION_PORT));
-    static Acquisition acquisition(source, diagnostics);
+    static Acquisition acquisition(source, diagnostics, &latest);
     if (!acquisition.start(&NetworkConsumer::consumeFrame, &network_consumer,
                            &NetworkConsumer::flushExpired)) {
         ESP_LOGE(TAG, "Acquisition startup failed");
         return;
+    }
+    if constexpr (ble_config::ENABLE_BLE) {
+        static BLEManager ble(latest, diagnostics,
+            [](void* context) { return static_cast<WiFiManager*>(context)->isConnected(); },
+            &wifi);
+        ble.setAcquisitionRunning(true);
+        if (!ble.init() || !ble.start()) {
+            ESP_LOGE(TAG, "BLE startup failed; acquisition and Wi-Fi continue");
+        }
     }
     // All ongoing work belongs to tasks. Wi-Fi status never gates acquisition.
 }

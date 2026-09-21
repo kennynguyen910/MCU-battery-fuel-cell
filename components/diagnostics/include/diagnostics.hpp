@@ -33,6 +33,12 @@ struct DiagnosticCounters
     int lastSendBytes = -1;
     std::uint32_t udpSendErrors = 0;
     std::uint32_t packetizerErrors = 0;
+    std::uint32_t bleConnections = 0;
+    std::uint32_t bleDisconnects = 0;
+    std::uint64_t bleNotificationsAttempted = 0;
+    std::uint64_t bleNotificationsSent = 0;
+    std::uint32_t bleNotificationErrors = 0;
+    bool bleConnected = false;
     std::uint32_t framesDropped = 0;
     std::uint32_t bufferOverflows = 0;
     std::uint32_t acquisitionLateEvents = 0;
@@ -58,6 +64,8 @@ public:
                            std::uint32_t read_time_us, std::uint32_t queue_depth);
     void recordConsumed(bool discontinuity);
     void recordPacketized(bool success);
+    void recordBleConnection(bool connected);
+    void recordBleNotification(bool accepted);
     void recordNetwork(NetworkOutcome outcome, std::uint16_t frames,
                        bool wifi_connected, bool udp_ready,
                        int socket_fd, int error, int sent_bytes);

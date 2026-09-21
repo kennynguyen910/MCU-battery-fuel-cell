@@ -61,6 +61,24 @@ void Diagnostics::recordPacketized(bool success)
     portEXIT_CRITICAL(&mutex_);
 }
 
+void Diagnostics::recordBleConnection(bool connected)
+{
+    portENTER_CRITICAL(&mutex_);
+    counters_.bleConnected = connected;
+    if (connected) ++counters_.bleConnections;
+    else ++counters_.bleDisconnects;
+    portEXIT_CRITICAL(&mutex_);
+}
+
+void Diagnostics::recordBleNotification(bool accepted)
+{
+    portENTER_CRITICAL(&mutex_);
+    ++counters_.bleNotificationsAttempted;
+    if (accepted) ++counters_.bleNotificationsSent;
+    else ++counters_.bleNotificationErrors;
+    portEXIT_CRITICAL(&mutex_);
+}
+
 void Diagnostics::recordNetwork(NetworkOutcome outcome, std::uint16_t frames,
                                 bool wifi_connected, bool udp_ready,
                                 int socket_fd, int error, int sent_bytes)
@@ -164,6 +182,12 @@ void Diagnostics::reportingTask(void* context)
                  " send failures=%" PRIu64 " batchFramesPerDatagram=%" PRIu32,
                  counters.udpDatagramsAttempted, counters.udpDatagramsSent,
                  counters.udpDatagramSendFailures, counters.batchFramesPerDatagram);
+        ESP_LOGI(TAG, "BLE connected=%s connections=%" PRIu32 " disconnects=%" PRIu32
+                 " notifications attempted=%" PRIu64 " accepted=%" PRIu64
+                 " errors=%" PRIu32,
+                 counters.bleConnected ? "yes" : "no", counters.bleConnections,
+                 counters.bleDisconnects, counters.bleNotificationsAttempted,
+                 counters.bleNotificationsSent, counters.bleNotificationErrors);
         ESP_LOGI(TAG, "Network: wifiConnected=%s udpReady=%s socketFd=%d",
                  counters.wifiConnected ? "true" : "false",
                  counters.udpReady ? "true" : "false", counters.socketFd);

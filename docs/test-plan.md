@@ -816,3 +816,27 @@ All board pins remain TBD, and Stage 2 touches no GPIO. Before RealADC integrati
 ensure its read is bounded, confirm physical sampling/timestamp semantics and
 validate full acquisition-cycle timing. Current timestamps indicate software
 ADC read start, not a synchronized hardware conversion instant.
+## Introductory BLE coexistence tests
+
+Build classic ESP32 with `idf.py set-target esp32` and `idf.py build`. Keep the
+existing Python UDP receiver on port 5005. Use the `ENABLE_BLE` flag in
+`components/ble/include/ble_config.hpp` for a Wi-Fi-only baseline and then BLE
+enabled. For every test, record five-second acquisition rate, late/missed timing
+events, queue depth/drops, UDP frames/datagrams/failures, BLE connection and
+notification counters. Compare at least 60-second intervals where practical.
+
+- **BLE A: advertising only.** Wi-Fi and UDP active; no phone connected.
+  Expect ~1000 acquired frames/s, no acquisition drops or queue overflow,
+  and UDP throughput near the Wi-Fi-only baseline.
+- **BLE B: connected, unsubscribed.** Connect with nRF Connect and read System
+  Status. Expect acquisition and UDP to continue; no notification errors from
+  having no subscriptions.
+- **BLE C: notifications.** Negotiate ATT MTU >=83, subscribe to Voltage Data,
+  and observe ~10 updates/s. Check acquisition remains ~1000 frames/s, UDP
+  continues, and notification errors ideally stay zero. Check the 80-byte
+  payload and signed microvolt values against `docs/ble.md`.
+- **BLE D: disconnect/reconnect.** Disconnect phone; acquisition and Wi-Fi/UDP
+  continue, BLE advertises again. Reconnect and subscribe; notifications resume.
+
+Repeat A-D on ESP32-S3 before final hardware use. A successful build is not a
+substitute for live Wi-Fi/BLE coexistence, MTU, or phone tests.

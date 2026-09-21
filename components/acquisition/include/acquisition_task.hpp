@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "acquisition.hpp"
 #include "acquisition_config.hpp"
+#include "latest_frame_store.hpp"
 #include "diagnostics.hpp"
 #include "driver/gptimer.h"
 #include "freertos/FreeRTOS.h"
@@ -17,12 +18,12 @@ public:
     // Bind ADCInterface::readFrame without a circular component dependency:
     // adc depends on SampleFrame in acquisition; acquisition needs only this adapter.
     template<typename Source>
-    Acquisition(Source& source, Diagnostics& diagnostics)
+    Acquisition(Source& source, Diagnostics& diagnostics, LatestFrameStore* latest = nullptr)
         : source_(&source),
           read_frame_([](void* context, SampleFrame& frame) {
               return static_cast<Source*>(context)->readFrame(frame);
           }),
-          diagnostics_(diagnostics)
+          diagnostics_(diagnostics), latest_(latest)
     {
     }
 
@@ -42,6 +43,7 @@ private:
     void* source_;
     bool (*read_frame_)(void*, SampleFrame&);
     Diagnostics& diagnostics_;
+    LatestFrameStore* latest_;
     FrameConsumer consume_frame_ = nullptr;
     IdleConsumer idle_consumer_ = nullptr;
     void* consumer_context_ = nullptr;

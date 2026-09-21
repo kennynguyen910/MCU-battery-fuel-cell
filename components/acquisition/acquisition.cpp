@@ -188,6 +188,7 @@ void Acquisition::acquisitionTask(void* context)
             // Timestamp is the monotonic START of this ADC read, not timer expiry
             // or consumer arrival. Failed reads consume no successful-frame sequence.
             frame.timestamp_us = static_cast<std::uint64_t>(read_start_us);
+            if (self.latest_) self.latest_->publish(frame);
             published = xQueueSend(self.queue_, &frame, 0) == pdTRUE;
             // The other core can drain between send and observation. A successful
             // send proves at least one queued item; a failed send proves capacity.
