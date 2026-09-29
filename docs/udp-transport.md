@@ -4,7 +4,7 @@
 
 Set UDP_DESTINATION_IP in components/udp/include/udp_config.hpp to the laptop's
 IPv4 address on the network shared with the ESP. Port defaults to 5005.
-Wi-Fi credentials remain in components/wifi/include/wifi_config.hpp.
+Wi-Fi credentials load from NVS; see README.md for optional development seeding.
 Use ipconfig on Windows to identify the active laptop network interface.
 The CHANGE_ME placeholder is intentionally invalid; configure it before flashing.
 

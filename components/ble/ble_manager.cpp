@@ -38,6 +38,7 @@ bool BLEManager::init()
         ESP_LOGE(TAG, "NimBLE init failed: %s", esp_err_to_name(error));
         return false;
     }
+    esp_log_level_set("NimBLE", ESP_LOG_WARN);
     instance_ = this;
     ble_hs_cfg.sync_cb = onSync;
     ble_hs_cfg.reset_cb = onReset;
@@ -68,10 +69,11 @@ bool BLEManager::init()
     }
     chars[0].val_handle = &voltage_handle_;
     chars[1].val_handle = &status_handle_;
-    static ble_gatt_svc_def services[2]{};
+    static ble_gatt_svc_def services[3]{};
     services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
     services[0].uuid = &ble_config::SERVICE_UUID.u;
     services[0].characteristics = chars;
+    provisioning_.configureService(services[1]);
     const int count_rc = ble_gatts_count_cfg(services);
     const int add_rc = count_rc == 0 ? ble_gatts_add_svcs(services) : count_rc;
     if (add_rc != 0) {
@@ -80,6 +82,7 @@ bool BLEManager::init()
         instance_ = nullptr;
         return false;
     }
+    ESP_LOGI(TAG, "Wi-Fi provisioning BLE service registered");
     initialized_ = true;
     return true;
 }
@@ -89,6 +92,8 @@ bool BLEManager::start()
     if (!initialized_) return false;
     if (started_) return true;
     // NimBLE owns its host task. This separate static task only samples at 10 Hz.
+    if (!provisioning_.start())
+        ESP_LOGE(TAG, "Provisioning worker unavailable; BLE monitoring continues");
     nimble_port_freertos_init(hostTask);
     if (!xTaskCreateStatic(updateTask, "ble_update", STACK_BYTES, this, 2,
                            stack_, &task_control_)) {
@@ -118,6 +123,7 @@ void BLEManager::onSync()
 
 void BLEManager::onReset(int reason)
 {
+    if (instance_) instance_->provisioning_.reset();
     ESP_LOGW(TAG, "NimBLE host reset: %d", reason);
 }
 
@@ -128,7 +134,7 @@ void BLEManager::advertise()
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.uuids128 = const_cast<ble_uuid128_t*>(&ble_config::SERVICE_UUID);
     fields.num_uuids128 = 1;
-    fields.uuids128_is_complete = 1;
+    fields.uuids128_is_complete = 0; // Additional provisioning service discovered after connect.
     ble_hs_adv_fields response{};
     response.name = reinterpret_cast<std::uint8_t*>(const_cast<char*>(ble_config::DEVICE_NAME));
     response.name_len = sizeof(ble_config::DEVICE_NAME) - 1;
@@ -147,6 +153,7 @@ void BLEManager::advertise()
 int BLEManager::gapEvent(ble_gap_event* event, void* arg)
 {
     auto& self = *static_cast<BLEManager*>(arg);
+    self.provisioning_.gapEvent(*event);
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {

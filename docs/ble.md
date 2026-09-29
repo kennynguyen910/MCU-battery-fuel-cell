@@ -47,8 +47,9 @@ acquisition-running, Wi-Fi-connected, and BLE-connected booleans (0 or 1);
 offset 4 is the latest SampleFrame status, uint32 big-endian, zero before the
 first frame. Status reads/notifications expose no credentials. The configuration
 value is one byte, 0 or 1, stored as a placeholder with no operational effect.
-The only accepted command is one-byte `0x00` (no-op); there is no provisioning,
-firmware update, or destructive command.
+The only accepted command on this original Command characteristic is one-byte
+`0x00` (no-op). A separate [Wi-Fi status/scanning service](ble_wifi_provisioning.md)
+adds GET_STATUS and START_SCAN; credential provisioning is not implemented.
 
 Connection/disconnection events update diagnostics. Disconnect clears
 subscriptions and resumes advertising. Notifications attempted/sent count local

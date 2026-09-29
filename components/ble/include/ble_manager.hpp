@@ -4,6 +4,7 @@
 #include <cstdint>
 #include "latest_frame_store.hpp"
 #include "diagnostics.hpp"
+#include "wifi_provisioning.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "host/ble_gap.h"
@@ -13,9 +14,9 @@ class BLEManager {
 public:
     using WifiStatus = bool (*)(void*);
     BLEManager(LatestFrameStore& latest, Diagnostics& diagnostics,
-               WifiStatus wifi_status, void* wifi_context)
+               WifiStatus wifi_status, void* wifi_context, WiFiManager& wifi)
         : latest_(latest), diagnostics_(diagnostics), wifi_status_(wifi_status),
-          wifi_context_(wifi_context) {}
+          wifi_context_(wifi_context), provisioning_(wifi) {}
     BLEManager(const BLEManager&) = delete;
     BLEManager& operator=(const BLEManager&) = delete;
     bool init();
@@ -39,6 +40,7 @@ private:
     Diagnostics& diagnostics_;
     WifiStatus wifi_status_;
     void* wifi_context_;
+    WiFiProvisioning provisioning_;
     std::atomic<bool> connected_{false};
     std::atomic<bool> acquisition_running_{false};
     std::atomic<bool> voltage_subscribed_{false};

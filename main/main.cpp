@@ -29,9 +29,6 @@ extern "C" void app_main()
 
     // Static lifetime keeps Wi-Fi callbacks and Stage 2 task references valid.
     static WiFiManager wifi;
-    if (!wifi.init() || !wifi.start()) {
-        ESP_LOGE(TAG, "Wi-Fi startup failed");
-    }
 
     static FakeADC adc;
     ADCInterface& source = adc;
@@ -52,10 +49,14 @@ extern "C" void app_main()
         ESP_LOGE(TAG, "Acquisition startup failed");
         return;
     }
+    // Acquisition is already running before any NVS or Wi-Fi initialization.
+    if (!wifi.init() || !wifi.start()) {
+        ESP_LOGE(TAG, "Wi-Fi startup failed; acquisition and BLE startup continue");
+    }
     if constexpr (ble_config::ENABLE_BLE) {
         static BLEManager ble(latest, diagnostics,
             [](void* context) { return static_cast<WiFiManager*>(context)->isConnected(); },
-            &wifi);
+            &wifi, wifi);
         ble.setAcquisitionRunning(true);
         if (!ble.init() || !ble.start()) {
             ESP_LOGE(TAG, "BLE startup failed; acquisition and Wi-Fi continue");

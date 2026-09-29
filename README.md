@@ -18,7 +18,7 @@ Five-second diagnostics report acquisition rate and timing, queue drops, UDP dat
 - **Implemented, awaiting live validation:** BLE advertising and GATT monitoring alongside Wi-Fi; repeat the full timing and radio tests on the final ESP32-S3.
 - **Still to build:** the real 16-channel ADC driver and calibration, final board pin mapping, and any later hardware interfaces. Synthetic values are not real battery or fuel-cell measurements.
 
-The latest classic ESP32 build succeeds with ESP-IDF 5.5.5. The Bluetooth-enabled image is close to the current 1 MB app-partition limit, with about 4% free. A successful build does not by itself establish BLE phone behavior or sustained Wi-Fi/BLE coexistence.
+The latest classic ESP32 build succeeds with ESP-IDF 5.5.5. The Bluetooth-enabled image is close to the current 1 MB app-partition limit, with about 3% free. A successful build does not by itself establish BLE phone behavior or sustained Wi-Fi/BLE coexistence.
 
 ## Build and try it
 
@@ -32,7 +32,15 @@ idf.py -p COM3 flash monitor
 
 Replace `COM3` with the board's serial port. The first `set-target` selects the chip; subsequent builds can use `idf.py build`. Exit the serial monitor with **Ctrl+]**. To build for the planned ESP32-S3, select `esp32s3` and rebuild; hardware behavior still needs retesting there. `sdkconfig.defaults` names ESP32-S3 for a fresh configuration, while the generated local `sdkconfig` records the currently selected target.
 
-Before flashing, set the temporary Wi-Fi credentials in [`components/wifi/include/wifi_config.hpp`](components/wifi/include/wifi_config.hpp) and the laptop's IPv4 address in [`components/udp/include/udp_config.hpp`](components/udp/include/udp_config.hpp). These are development settings; avoid committing personal credentials. On the laptop, run:
+Wi-Fi credentials now persist across reboot in NVS namespace `wifi_cfg`, keys `ssid` and `password`. With no saved credentials, startup succeeds in `UNPROVISIONED`: no station connection attempts occur, while acquisition, BLE, and diagnostics continue. The station radio runs to support explicit BLE-requested scans. Saved credentials are loaded at boot; connection attempts are asynchronous and existing disconnect/reconnect behavior is retained. `getState()` reports `UNPROVISIONED`, `CONNECTING`, `CONNECTED` (has IP), or `CONNECTION_FAILED`. Disconnects enter failure state, then `CONNECTING` when a retry starts.
+
+For temporary development seeding, use your existing local values in [`wifi_config.hpp`](components/wifi/include/wifi_config.hpp) and set `WIFI_ENABLE_DEVELOPMENT_SEED` to `1` in [`wifi_provisioning_config.hpp`](components/wifi/include/wifi_provisioning_config.hpp). It defaults to `0`; credentials are written only when NVS keys are missing, never over valid saved credentials or on a read error. After one successful boot, set it back to `0` and rebuild/flash without erasing NVS. With seeding disabled the credential header is excluded from compilation. Do not commit personal credentials.
+
+`WiFiManager` exposes `loadCredentials(WiFiCredentials&)`, `saveCredentials(const WiFiCredentials&)`, `hasStoredCredentials()`, and `clearCredentials()` for future BLE provisioning; the separate [BLE Wi-Fi status/scanning service](docs/ble_wifi_provisioning.md) now supports GET_STATUS and START_SCAN; credential transfer is not implemented. Call `init()` first, then invoke storage/lifecycle operations serially from one control task, never an ISR, acquisition task, or Wi-Fi callback. Queries of connection state are atomic. Saving affects the next boot; clearing stops Wi-Fi, erases only the two keys, and sets `UNPROVISIONED`. Disable seeding before clearing or credentials will be seeded on the next boot. NVS read/write errors are logged without credentials. An interrupted save can leave credentials absent; it does not intentionally reuse a partially updated pair. Full NVS erase is retained only for ESP-IDF's existing initialization recovery cases.
+
+For hardware validation, with seeding disabled, temporarily call `wifi.clearCredentials()` after `wifi.init()` on the application control task, then remove the call and reboot. Check `UNPROVISIONED`, BLE advertising, and about 1000 frames/s. Seed valid credentials, disable seeding, and power-cycle to verify persistence and UDP reception. Turn the router off/on to verify reconnect and uninterrupted acquisition; repeat clear/reboot and check unrelated NVS data remains. Monitor acquisition drops, queue overflow, and timing during each test, including flash writes. NVS persistence and radio behavior require hardware validation.
+
+Set the laptop's IPv4 address in [`components/udp/include/udp_config.hpp`](components/udp/include/udp_config.hpp). On the laptop, run:
 
 ```powershell
 python .\tools\udp_receiver.py
