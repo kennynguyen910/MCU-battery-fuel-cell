@@ -1,0 +1,30 @@
+name: capstone_monitor
+description: Minimal manual-input and monitoring app for the capstone project.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  # Flutter's standard cross-platform icon font prevents missing-font warnings
+  # when the shared application is compiled for iOS and web.
+  cupertino_icons: ^1.0.8
+  # HTTP connects the app to storage; native BLE/USB receive device readings.
+  http: ^1.6.0
+  # Native collector logs belong in the app's documents directory.
+  path_provider: ^2.1.5
+  # The browser preview stores the same logical log in localStorage.
+  web: ^1.1.1
+  flutter_reactive_ble: 5.6.0
+  usb_serial: 0.5.2
+  permission_handler: 13.0.2
+dev_dependencies:
+  integration_test:
+    sdk: flutter
+  # Flutter's built-in test package supports unit and widget tests.
+  flutter_test:
+    sdk: flutter
+flutter:
+  # Include Flutter's Material icon font; visual decisions remain otherwise plain.
+  uses-material-design: true

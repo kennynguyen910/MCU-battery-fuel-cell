@@ -1,0 +1,111 @@
+import 'dart:math';
+import 'api.dart';
+import 'capture_log.dart';
+import 'device_packets.dart';
+
+/// Native transports share the existing save-before-upload path. Notification
+/// callbacks enqueue synchronously; only one drain can touch the durable log.
+class DirectCapture {
+  final Api api;
+  final CaptureLog log;
+  final List<Map<String, dynamic>> _pending = [];
+  final String _epoch =
+      '${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 32)}';
+  String? sessionId;
+  bool capturing = false;
+  int received = 0, invalid = 0, duplicates = 0, uploaded = 0, overflow = 0;
+  int _lastMs = 0;
+  String? _lastKey;
+  DeviceSample? latest;
+  DateTime? receivedAt;
+  Future<void>? _draining;
+  DirectCapture(this.api, this.log);
+  int get queued => _pending.length;
+
+  void add(DeviceSample sample) {
+    received++;
+    receivedAt = DateTime.now();
+    latest = sample;
+    final key = '${sample.sequence}:${sample.timestampUs}';
+    if (key == _lastKey) {
+      duplicates++;
+      return;
+    }
+    _lastKey = key;
+    if (sample.channels.length != 16 ||
+        sample.channels.any((v) => !v.isFinite || v < -5 || v > 5)) {
+      invalid++;
+      return;
+    }
+    if (!capturing || sessionId == null) return;
+    if (_pending.length >= 10000) {
+      overflow++;
+      capturing = false;
+      return;
+    }
+    _lastMs = max(_lastMs + 1, receivedAt!.millisecondsSinceEpoch);
+    _pending.add({
+      'frameId': '$_epoch-$_lastMs-$key',
+      'recordedAt': DateTime.fromMillisecondsSinceEpoch(_lastMs, isUtc: true)
+          .toIso8601String(),
+      'channels': sample.channels,
+    });
+  }
+
+  void start(String id) {
+    if (_pending.isNotEmpty || _draining != null) {
+      throw StateError('Wait for pending frames to be saved first.');
+    }
+    sessionId = id;
+    capturing = true;
+  }
+
+  void stop() {
+    capturing = false;
+  }
+
+  void clearLive() {
+    latest = null;
+    receivedAt = null;
+    _lastKey = null;
+  }
+
+  Future<void> drain({bool upload = true}) async {
+    if (_draining != null) {
+      try {
+        await _draining;
+      } catch (_) {
+        if (upload) rethrow;
+      }
+      if (upload) return;
+    }
+    final operation = _drain(upload);
+    _draining = operation;
+    try {
+      await operation;
+    } finally {
+      _draining = null;
+    }
+  }
+
+  Future<void> _drain(bool upload) async {
+    // Give a full durable log a chance to recover before appending more data.
+    // An offline API must not prevent saving the current notification batch.
+    Object? uploadError;
+    if (upload && log.pending > 0) {
+      try {
+        uploaded += await log.flush(api);
+      } catch (error) {
+        uploadError = error;
+      }
+    }
+    // Save incoming data even if the API is unavailable.
+    if (_pending.isNotEmpty) {
+      final batch = _pending.take(1000).toList();
+      await log.appendAll(api.baseUrl, sessionId!, batch);
+      _pending.removeRange(0, batch.length);
+    }
+    if (uploadError != null) throw uploadError;
+    if (upload) uploaded += await log.flush(api);
+  }
+}

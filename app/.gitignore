@@ -1,0 +1,51 @@
+# Local secrets and per-computer configuration. Keep the documented example.
+.env
+.env.*
+!.env.example
+
+# Downloaded dependencies and SDKs are recreated by the setup launchers.
+node_modules/
+.pnpm-store/
+.tools/
+
+# Persistent local measurements, database files, downloads, and logs.
+.local/
+tmp/
+*.log
+
+# Flutter/Dart generated files and build products.
+.dart_tool/
+.packages
+.pub-cache/
+build/
+coverage/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android per-machine paths, caches, and signing secrets.
+**/android/local.properties
+**/android/.gradle/
+**/android/captures/
+**/*.jks
+**/*.keystore
+key.properties
+
+# iOS generated settings and CocoaPods products.
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Pods/
+**/ios/.symlinks/
+
+# Editors and operating-system metadata are not project source.
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Generic compiled web/server output.
+dist/
+
+# Windows reserved-name artifact from an old command.
+/nul
