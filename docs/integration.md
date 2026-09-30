@@ -1,5 +1,9 @@
 # Combine the MCU firmware and application
 
+**For the ordered development checklist, open [NEXT_STEPS](../NEXT_STEPS.md)**
+or the [visual PDF guide](Capstone_Next_Steps_Guide.pdf).
+
+
 Both codebases now live in one repository on the integration branch. Keep their
 builds separate and join them through the existing byte protocols. Do not move
 ESP-IDF C++ into Flutter, or put API/database code on the ESP32.

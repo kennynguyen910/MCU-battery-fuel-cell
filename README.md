@@ -1,5 +1,13 @@
 # Battery/Fuel Cell Monitor firmware
 
+## NEXT STEPS - START HERE
+
+**[Open the development roadmap](NEXT_STEPS.md)** | **[Download the three-page visual guide](docs/Capstone_Next_Steps_Guide.pdf)**
+
+**Next action:** secure the BLE link and implement firmware credential transactions.
+The guide shows priorities, file locations, completion criteria and the hardware checklist.
+
+
 ## Firmware and app integration branch
 
 This branch contains the ESP-IDF firmware at the root and the complete
