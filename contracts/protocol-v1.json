@@ -1,0 +1,105 @@
+{
+  "description": "Shared v1 integration fixtures. Credential bytes are the PDF dummy example, never real Wi-Fi credentials.",
+  "source": "components/protocol/packetizer_self_test.cpp golden packet; all integer fields in network byte order.",
+  "firmwareGolden": {
+    "udpHex": "424d01010102030401020304050607080012d687ffed2979800000007fffffffffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea6000011170a1b2c3d435aaf680",
+    "bleHex": "0102030401020304050607080012d687ffed2979800000007fffffffffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea6000011170a1b2c3d4",
+    "sequence": 16909060,
+    "timestampUs": "72623859790382856",
+    "channelsUv": [
+      1234567,
+      -1234567,
+      -2147483648,
+      2147483647,
+      -40000,
+      -30000,
+      -20000,
+      -10000,
+      0,
+      10000,
+      20000,
+      30000,
+      40000,
+      50000,
+      60000,
+      70000
+    ],
+    "status": 2712847316
+  },
+  "benchSamples": [
+    {
+      "udpHex": "424d01010000006400000000000f42400012d687ffed2979ffb3b4c0004c4b40ffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea6000011170000000030a660fbf",
+      "bleHex": "0000006400000000000f42400012d687ffed2979ffb3b4c0004c4b40ffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea600001117000000003",
+      "sequence": 100,
+      "timestampUs": "1000000",
+      "channelsUv": [
+        1234567,
+        -1234567,
+        -5000000,
+        5000000,
+        -40000,
+        -30000,
+        -20000,
+        -10000,
+        0,
+        10000,
+        20000,
+        30000,
+        40000,
+        50000,
+        60000,
+        70000
+      ],
+      "status": 3
+    },
+    {
+      "udpHex": "424d01010000006500000000000f46280012d687ffed2979ffb3b4c0004c4b40ffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea600001117000000003e5725c51",
+      "bleHex": "0000006500000000000f46280012d687ffed2979ffb3b4c0004c4b40ffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea600001117000000003",
+      "sequence": 101,
+      "timestampUs": "1001000",
+      "channelsUv": [
+        1234567,
+        -1234567,
+        -5000000,
+        5000000,
+        -40000,
+        -30000,
+        -20000,
+        -10000,
+        0,
+        10000,
+        20000,
+        30000,
+        40000,
+        50000,
+        60000,
+        70000
+      ],
+      "status": 3
+    }
+  ],
+  "batchHex": "42420102000200000007424d01010000006400000000000f42400012d687ffed2979ffb3b4c0004c4b40ffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea6000011170000000030a660fbf424d01010000006500000000000f46280012d687ffed2979ffb3b4c0004c4b40ffff63c0ffff8ad0ffffb1e0ffffd8f0000000000000271000004e200000753000009c400000c3500000ea600001117000000003e5725c51",
+  "provisioning": {
+    "service": "5ecf1000-41c2-4cc4-9c96-640f406021d0",
+    "control": "5ecf1001-41c2-4cc4-9c96-640f406021d0",
+    "data": "5ecf1002-41c2-4cc4-9c96-640f406021d0",
+    "status": "5ecf1003-41c2-4cc4-9c96-640f406021d0",
+    "connectedStatusHex": "01020900c0a8012a",
+    "getStatusHex": "01010100",
+    "startScanHex": "01021700",
+    "scanFragmentsHex": [
+      "0102170000240d00d00320426174746572794d6f",
+      "010217000d240d6e69746f722d6c61622d6e6574",
+      "010217001a240a776f726b2d3132333435"
+    ],
+    "scanSsid": "BatteryMonitor-lab-network-12345",
+    "scanRssi": -48,
+    "scanAuth": 3,
+    "scanCompleteHex": "0182170101",
+    "credentialsObjectHex": "070a4c6162576946696578616d706c65313233",
+    "credentialsFragmentsHex": [
+      "0101180000130d070a4c6162576946696578616d",
+      "010118000d1306706c65313233"
+    ]
+  }
+}

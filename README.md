@@ -1,4 +1,21 @@
-﻿# Battery/Fuel Cell Monitor firmware
+# Battery/Fuel Cell Monitor firmware
+
+## Firmware and app integration branch
+
+This branch contains the ESP-IDF firmware at the root and the complete
+Flutter/API/PostgreSQL application under [`app/`](app/README.md).
+Start with the [combined architecture and integration steps](docs/integration.md).
+
+- Windows app setup: `Setup_App.cmd`; normal startup: `Start_Project.cmd`.
+- Firmware build/flash: ESP-IDF commands at repository root.
+- Shared compatibility checks: `python tools/check_integration.py`.
+- Current provisioning specification: [Will and Kenny Startup.pdf](app/docs/Will%20and%20Kenny%20Startup.pdf).
+
+Measurement wire formats already match. Full app-driven Wi-Fi setup still needs
+firmware credential transactions, secure pairing, live apply/clear, and state
+notifications. Status/scans are available now. This branch is for later review
+and merge; see the integration guide for exact implementation and acceptance gates.
+
 
 This repository is the firmware for a 16-channel battery and fuel-cell monitor. It is built with C++, ESP-IDF, and FreeRTOS. The final board is planned around an ESP32-S3; development and end-to-end network testing currently use a classic ESP32. The firmware already exercises the full path from sampling to a laptop, while the physical ADC and final board wiring are still to come.
 

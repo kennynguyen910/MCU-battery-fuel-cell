@@ -1,5 +1,8 @@
 # BLE Wi-Fi provisioning v1
 
+For both codebases and their remaining integration steps, see the
+[combined repository guide](../../docs/integration.md).
+
 The authoritative protocol is [Will and Kenny Startup.pdf](Will%20and%20Kenny%20Startup.pdf).
 It supersedes conflicting provisioning assumptions in earlier documentation.
 

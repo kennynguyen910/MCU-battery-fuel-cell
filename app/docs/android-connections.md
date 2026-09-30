@@ -10,7 +10,7 @@ Saved sessions are visible in the website's History screen.
 1. Flash the linked MCU-battery-fuel-cell firmware with `ENABLE_BLE = true`.
 2. Enable Bluetooth on the phone. Open the BLE tab and tap **Scan for ESP32**.
 3. Allow Nearby devices (Android 12+) or Location (older Android) when prompted.
-4. Connect to **BatteryMonitor**. The app requests MTU 128; at least 83 is required.
+4. Connect to **BatteryMonitor**. The app opens Settings / Wi-Fi for status, scans, and provisioning. Current firmware supports status/scans; its credential handling remains pending. Return from settings to capture measurements. The app requests MTU 128; voltage notifications require at least 83, while Wi-Fi setup packets fit MTU 23.
 5. Wait for **Receiving measurements**, enter a session name, then **Create
    session** and **Start capture**. Stop capture before leaving the page.
 
@@ -19,8 +19,9 @@ notifications use `5ecf0001-41c2-4cc4-9c96-640f406021d0`. The 80-byte value is
 big-endian: sequence at 0, timestamp_us at 4, sixteen signed microvolt channels
 at 12, and status at 76. BLE intentionally sends about 10 latest-frame updates/s.
 Sequence gaps of about 100 are expected, not evidence of Bluetooth packet loss.
-Disconnect stops capture; reconnect and start explicitly. No configuration or
-command characteristic is written by the app.
+Disconnect stops capture; reconnect and start explicitly. The legacy measurement configuration/command characteristics remain unchanged.
+The app writes only the separate provisioning Control/Data characteristics for
+Wi-Fi setup. See the [combined integration guide](../../docs/integration.md).
 
 ## Wi-Fi (and network Ethernet)
 

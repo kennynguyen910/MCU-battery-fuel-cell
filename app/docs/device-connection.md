@@ -1,5 +1,12 @@
 # Connect the ESP32 to the app (development bench)
 
+For the combined integration branch, start with the
+[repository integration guide](../../docs/integration.md). Firmware is at the
+repository root; this application is under `app/`. BLE provisioning v1 supersedes
+older compile-time credential assumptions. Current firmware supports status and
+scans; credential transfer remains pending.
+
+
 This integration matches the MCU repository's [README](https://github.com/kennynguyen910/MCU-battery-fuel-cell), [packet protocol](https://github.com/kennynguyen910/MCU-battery-fuel-cell/blob/main/docs/protocol.md), and [UDP transport](https://github.com/kennynguyen910/MCU-battery-fuel-cell/blob/main/docs/udp-transport.md) at commit `81293ca` (2026-09-21). The firmware currently sends synthetic FakeADC data; the final ADC and board wiring are unfinished.
 
 ## 1. Put the laptop and ESP32 on the same network
@@ -10,7 +17,7 @@ Use a private 2.4 GHz Wi-Fi network that allows devices to reach one another. Av
 
 In the [MCU repository](https://github.com/kennynguyen910/MCU-battery-fuel-cell):
 
-1. Put the network SSID/password in `components/wifi/include/wifi_config.hpp` without committing them.
+1. Current firmware uses NVS credentials. For temporary development seeding only, put SSID/password in `components/wifi/include/wifi_config.hpp` and explicitly enable `WIFI_ENABLE_DEVELOPMENT_SEED` in `wifi_provisioning_config.hpp`. It defaults to disabled; valid existing NVS credentials are not overwritten. Disable seeding for final firmware. App-driven credential setup needs the remaining integration described above.
 2. Put the laptop IPv4 address in `components/udp/include/udp_config.hpp`. Keep UDP destination port `5005` unless you also change `DEVICE_UDP_PORT` here.
 3. In an ESP-IDF 5.5.5 terminal, run `idf.py set-target esp32`, `idf.py build`, and `idf.py -p COM3 flash monitor`, replacing `COM3` with the board port. The planned ESP32-S3 needs `idf.py set-target esp32s3` and separate hardware validation.
 
