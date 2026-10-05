@@ -69,7 +69,8 @@ Shared fixtures pin both signed values and a 64-bit timestamp. The C++ golden
 packet deliberately includes int32 extrema: decoding those bytes is valid, but
 voltages outside ±5 V must not be uploaded. Separate bench fixtures use values
 within ±5 V for API/session acceptance. MCU timestamps are time since boot,
-not UTC; existing collector timestamp estimation and retry identity stay in place.
+not UTC; collector timestamps anchor device intervals to estimated host UTC at
+microsecond precision, retaining that identity on retry.
 
 ## Work required before full Wi-Fi setup works
 
@@ -138,7 +139,7 @@ never consume the UDP queue. This is independent of the required BLE provisionin
 
 Measurement throughput is now tested separately through real UDP, the Dart
 collector's durable journal, HTTP and PostgreSQL. See
-[1kSPS capture acceptance](../app/docs/1ksps-capture.md) for sustained-load
+[1kSPS minimum / 2kSPS target acceptance](../app/docs/1ksps-capture.md) for sustained-load
 results and the commands. This host evidence does not replace the physical
 phone/ESP32 timing gate below.
 

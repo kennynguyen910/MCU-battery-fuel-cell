@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { inspectDatagram } from './device-udp.js';
+import { formatMicros } from './sample-time.js';
 
 // Sequence gaps are estimates: UDP has no acknowledgement or boot identifier.
 // First/last unseen losses cannot be inferred; late packets do not undo a gap.
@@ -46,7 +47,7 @@ export class DeviceReceiver {
       missingFrames: 0, duplicateFrames: 0, lateFrames: 0, restartEstimates: 0,
       invalidFrames: 0, invalidDatagrams: 0, crcErrors: 0, lastReceivedAt: null,
       lastSequence: null, lastTimestamp: null, rate: [], recent: new FrameRing(this.capacity),
-      bufferDroppedFrames: 0, streamId: randomUUID(), lastRecordedMs: 0,
+      bufferDroppedFrames: 0, streamId: randomUUID(), lastRecordedUs: 0n, clockOffsetUs: null,
     };
     source.lastSeen = now;
     source.receivedDatagrams++;
@@ -66,7 +67,7 @@ export class DeviceReceiver {
       if (source.lastSequence !== null) {
         const delta = (frame.sequence - source.lastSequence) >>> 0;
         const restart = frame.sequence <= 10 && timestamp + 1_000_000n < source.lastTimestamp;
-        if (restart) source.restartEstimates++;
+        if (restart) { source.restartEstimates++; source.clockOffsetUs = null; }
         else if (delta === 0) { source.duplicateFrames++; continue; }
         else if (delta >= 0x80000000) { source.lateFrames++; continue; }
         else source.missingFrames += delta - 1;
@@ -76,14 +77,19 @@ export class DeviceReceiver {
       source.uniqueFrames++;
       accepted++;
       source.lastReceivedAt = new Date(now).toISOString();
-      // Recover intra-packet timing from the device clock. SQL keys have ms
-      // precision, so make timestamps strictly increasing for a <=1 kHz stream.
-      // receivedAt remains the actual arrival time; recordedAt is reconstructed.
+      // Anchor once per estimated boot. Device timing remains intact across
+      // packets, delivery jitter and host clock changes, including >1 kHz.
       const tail = BigInt(result.frames.at(-1).timestampUs);
-      const offset = tail >= timestamp ? Number((tail - timestamp) / 1000n) : 0;
-      source.lastRecordedMs = Math.max(now - offset, source.lastRecordedMs + 1);
+      if (source.clockOffsetUs === null) {
+        const arrivalOffset = BigInt(now) * 1000n - tail;
+        const monotonicOffset = source.lastRecordedUs + 1n - timestamp;
+        source.clockOffsetUs = arrivalOffset > monotonicOffset ? arrivalOffset : monotonicOffset;
+      }
+      const reconstructed = source.clockOffsetUs + timestamp;
+      source.lastRecordedUs = reconstructed > source.lastRecordedUs
+        ? reconstructed : source.lastRecordedUs + 1n;
       source.frame = { ...frame, frameId: randomUUID(), cursor: source.uniqueFrames,
-        recordedAt: new Date(source.lastRecordedMs).toISOString(), receivedAt: source.lastReceivedAt, sourceIp };
+        recordedAt: formatMicros(source.lastRecordedUs), receivedAt: source.lastReceivedAt, sourceIp };
       if (source.recent.push(source.frame)) source.bufferDroppedFrames++;
     }
     source.rate = source.rate.filter(entry => now - entry.time < 1000);
@@ -118,7 +124,7 @@ export class DeviceReceiver {
   }
 
   view(source) {
-    const { rate, lastTimestamp, lastRecordedMs, lastSeen, recent, ...publicState } = source;
+    const { rate, lastTimestamp, lastRecordedUs, clockOffsetUs, lastSeen, recent, ...publicState } = source;
     return { ...publicState,
       bufferedFrames: recent.length, bufferCapacity: this.capacity,
       framesPerSecond: rate.filter(entry => this.now() - entry.time < 1000).reduce((sum, e) => sum + e.count, 0),

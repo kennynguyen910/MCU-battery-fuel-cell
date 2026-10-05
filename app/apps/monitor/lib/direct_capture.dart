@@ -14,7 +14,8 @@ class DirectCapture {
   String? sessionId;
   bool capturing = false;
   int received = 0, invalid = 0, duplicates = 0, uploaded = 0, overflow = 0;
-  int _lastMs = 0;
+  int _lastUs = 0;
+  int? _clockOffsetUs, _lastDeviceUs;
   String? _lastKey;
   DeviceSample? latest;
   DateTime? receivedAt;
@@ -43,10 +44,19 @@ class DirectCapture {
       capturing = false;
       return;
     }
-    _lastMs = max(_lastMs + 1, receivedAt!.millisecondsSinceEpoch);
+    // Keep device sub-ms timing even when notifications arrive in a burst.
+    // A decreasing device clock denotes a reset; keep SQL keys monotonic.
+    if (_lastDeviceUs != null && sample.timestampUs < _lastDeviceUs!) {
+      _clockOffsetUs = null;
+    }
+    _clockOffsetUs ??= max(
+        receivedAt!.microsecondsSinceEpoch - sample.timestampUs,
+        _lastUs + 1 - sample.timestampUs);
+    _lastDeviceUs = sample.timestampUs;
+    _lastUs = max(_lastUs + 1, _clockOffsetUs! + sample.timestampUs);
     _pending.add({
-      'frameId': '$_epoch-$_lastMs-$key',
-      'recordedAt': DateTime.fromMillisecondsSinceEpoch(_lastMs, isUtc: true)
+      'frameId': '$_epoch-$_lastUs-$key',
+      'recordedAt': DateTime.fromMicrosecondsSinceEpoch(_lastUs, isUtc: true)
           .toIso8601String(),
       'channels': sample.channels,
     });
@@ -57,6 +67,8 @@ class DirectCapture {
       throw StateError('Wait for pending frames to be saved first.');
     }
     sessionId = id;
+    _clockOffsetUs = null;
+    _lastDeviceUs = null;
     capturing = true;
   }
 

@@ -12,6 +12,37 @@ DeviceSample sample(int seq) =>
     DeviceSample(seq, seq * 100000, 0, List.filled(16, 1.25));
 
 void main() {
+  test('direct 2kHz burst retains device timing through save and reset',
+      () async {
+    final api = Api();
+    final log = CaptureLog(read: () async => null, write: (_) async {});
+    final capture = DirectCapture(api, log)..start('s');
+    for (var i = 0; i < 2000; i++) {
+      capture.add(DeviceSample(i, i * 500, 0, List.filled(16, 1.0)));
+    }
+    await capture.drain(upload: false);
+    final times = log.entries
+        .map((e) =>
+            DateTime.parse(e['recordedAt'] as String).microsecondsSinceEpoch)
+        .toList();
+    for (var i = 0; i < 2000; i++) {
+      expect(times[i] - times.first, i * 500);
+    }
+    capture.add(DeviceSample(0, 0, 0, List.filled(16, 1.0)));
+    capture.add(DeviceSample(1, 500, 0, List.filled(16, 1.0)));
+    await capture.drain(upload: false);
+    expect(
+        DateTime.parse(log.entries.last['recordedAt'] as String)
+            .microsecondsSinceEpoch,
+        greaterThan(times.last));
+    expect(
+        DateTime.parse(log.entries.last['recordedAt'] as String)
+            .difference(
+                DateTime.parse(log.entries[2000]['recordedAt'] as String))
+            .inMicroseconds,
+        500);
+    api.close();
+  });
   test('direct capture batches notifications, retries offline, and honors Stop',
       () async {
     var offline = true;

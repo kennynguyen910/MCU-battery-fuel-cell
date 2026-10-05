@@ -8,7 +8,8 @@ import {
 } from "../src/validation.js";
 
 test("accepts a timestamp and exactly 16 voltage values", () => {
-  // The server normalizes every accepted timestamp to UTC milliseconds.
+  // Millisecond inputs retain their established UTC representation; sub-ms
+  // inputs additionally retain microseconds (covered by microsecond-capture).
   const [sample] = validateSamples([{ recordedAt: "2026-09-12T12:00:00Z", channels: Array(16).fill(1.2) }]);
   assert.equal(sample.channels.length, 16);
   assert.equal(sample.recordedAt, "2026-09-12T12:00:00.000Z");

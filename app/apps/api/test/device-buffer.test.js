@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js';
 import { MemoryStore } from '../src/memory-store.js';
 import { DeviceReceiver, MAX_BUFFERED_FRAMES } from '../src/device-receiver.js';
 import { encodeBatch } from '../src/network-simulator.js';
+import { timestampMicros } from '../src/sample-time.js';
 
 test('ring paging preserves chronology through repeated non-batch-aligned wraps', () => {
   const receiver = new DeviceReceiver({capacity:37, now:() => 100000});
@@ -56,6 +57,8 @@ test('arrival cursor continues through a device sequence restart', () => {
   assert.equal(page.streamReset,false);
   assert.deepEqual(page.frames.map(f=>f.sequence),[0,1,2,3,4,5,6,7,8,9]);
   assert.equal(page.nextCursor,20);
+  const times = page.frames.map(f=>timestampMicros(f.recordedAt));
+  for (let i=1;i<times.length;i++) assert.equal(times[i]-times[i-1],1000n);
 });
 
 // Start the real Express app on a temporary port, then feed it wire-format

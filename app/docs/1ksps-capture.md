@@ -1,153 +1,168 @@
-# 1kSPS capture — development and acceptance guide
+# Capture next steps: 2kSPS target, 1kSPS minimum
 
-**Target:** 1,000 complete 16-channel frames/second = 16,000 stored channel readings/second.
-**Route:** ESP32 UDP → API buffer → collector journal → upload batches → PostgreSQL.
-**Status:** Software throughput verified; physical ESP32/phone acceptance remains required.
+**SOFTWARE VERIFIED:** sustained 2,000 complete frames/s in native and browser collectors.
 
-## At a glance
+**MINIMUM VERIFIED:** 1,000 frames/s with delayed uploads and outage recovery.
 
-| Check | Recorded result, October 5, 2026 |
-| --- | --- |
-| Sustained 1kSPS, native Dart/file journal | 60,000 frames in 60.009 seconds; exactly 960,000 SQL readings |
-| Extended native 1kSPS, through ring retirement | 120,000 frames in 120.014 seconds; exactly 1,920,000 SQL readings; every voltage verified; reader misses 0; peak pending 10,760 |
-| Sustained 1kSPS, built Chrome/IndexedDB collector | 60,000 frames in 60.014 seconds; exactly 960,000 SQL readings; every voltage verified; reader misses 0; peak pending 10,750; reload/retry recovered |
-| Capacity headroom, native Dart/file journal | 60,000 frames at 2,000 FPS in 30.010 seconds; exactly 960,000 SQL readings |
-| Software data loss/corruption in those runs | 0 UDP sequence gaps, 0 invalid frames, 0 reader misses; every SQL voltage matched the wire generator |
-| Upload outage and lost acknowledgement | 10-second upload outage; first committed batch returned a synthetic failure; retry introduced no duplicate readings |
-| Backlog recovery | Journal reloaded during the outage; peak pending 10,740 at 1kSPS and 21,550 at 2kSPS; final pending 0 |
-| Hardware and physical phone | NOT YET VERIFIED; no device was attached for this work |
+**HARDWARE GATE OPEN:** ESP32 + physical phone acceptance remains required.
 
-These are synthetic loopback tests on the development Windows PC with real disk
-flushes, UDP, HTTP, Dart collector code and the project's PostgreSQL database.
-The 2kSPS run measures software capacity; reconstructed SQL timestamps retain
-millisecond uniqueness and are not a claim of accurate 2kHz physical timing.
+**NEXT ACTION:** run the target phone against the real board, router and database.
 
-The extended run retired 60,000 old receiver-buffer frames after they had already
-been consumed. The existing `bufferDroppedFrames` counter counts such retention
-retirement; reader-specific `missedFrames` measures actual collector overrun and
-remained zero. Normal retirement must not be mistaken for dropped measurements.
+A frame contains **all 16 channels**. At 2kSPS the database stores 32,000 channel
+readings each second. The firmware's existing 1kHz acquisition timer is preserved.
+The application now has headroom above that rate; these tests do not raise the ADC rate.
 
-The full app checks passed: 30 API tests using real PostgreSQL and 39 Flutter
-tests, plus the shared 9 Python / 3 Node / 3 Dart integration contract checks.
-Flutter analysis reported no issues and the normal web build passed.
-The Android debug APK also compiled successfully, and its native activity was
-verified in the package. Compilation does not establish physical phone throughput.
+## At a glance — recorded October 5, 2026
 
-Android build verification also repaired the existing USB dependency setup:
-the app now selects the checked-in `usb_serial` 0.5.2 path package with current
-Gradle repositories/namespace/lint settings, retaining identical upstream Dart
-and Java sources and the same 6.1.0 native driver. The app compiles against API 37
-as required by its existing BLE/permission plugins; setup now installs platform
-37.0. Target/minimum SDK behavior is preserved. See
-`apps/monitor/third_party/usb_serial/CAPSTONE_PATCH.md` for provenance.
+| Rate | Collector | Wire run | Frames / SQL readings | Final backlog drain |
+| --- | --- | --- | --- | --- |
+| **1,000/s minimum** | Native Dart + file journal | 120.013 s | 120,000 / 1,920,000 | 2.109 s |
+| **2,000/s target** | Native Dart + file journal | 180.004 s | 360,000 / 5,760,000 | 4.104 s |
+| **2,000/s target** | Built Chrome + IndexedDB | 180.013 s | 360,000 / 5,760,000 | 2.660 s |
+| 3,000/s stress headroom | Native + live history viewer | 60.008 s | 180,000 / 2,880,000 | 7.774 s |
 
-## What changed
+**All four runs passed:** zero send errors, UDP sequence gaps, invalid frames or
+collector misses; every SQL voltage and every microsecond sample timestamp
+matched the independent wire generator. Final pending count after reload: **0**.
+Each included **750 ms extra delay on successful uploads**, a **10-second upload
+outage**, **journal reload during that outage**, and **one committed batch whose
+response was lost**. Retry produced no duplicate readings.
 
-1. **Receiving no longer waits for uploading.** A separate 250 ms capture pump
-   pages up to eight 1,000-frame batches per turn; upload retries run separately.
-   Display/session refreshes remain at one second. Slow database requests cannot
-   hold the acquisition/storage pump.
-2. **The receiver uses a ring buffer.** Retention is constant-time per sample;
-   arrival paging reads only the requested frames. Its 60,000-frame capacity is
-   60 seconds at 1kSPS. Legacy sequence paging and packet formats are preserved.
-   The UDP socket requests a 4 MiB receive buffer; actual OS capacity is reported
-   by the acceptance test (4,194,304 bytes on this PC).
-3. **Save new batches, rather than rewrite all history.** Native apps append
-   flushed journal records; browsers use strict IndexedDB transactions. Both
-   migrate the old log, replay pending data, retain 500 uploaded frames and
-   periodically compact. Only local commits serialize. HTTP runs outside that
-   lock. A failed local acknowledgement leaves the batch pending for retry.
-4. **Keep existing database keys and batch contracts.** Uploads still contain
-   up to 1,000 frames and use the original session/timestamp/channel key. An
-   identical retry avoids rewriting unchanged voltages. A changed voltage at
-   the same key still updates. ADC, measurement UUIDs, BM/BB packet bytes and
-   provisioning contracts were preserved.
+Peak pending counts were 13,490 at 1kSPS, 25,500 / 25,510 in native / Chrome at
+2kSPS, and 41,240 in the 3kSPS stress run. The 3kSPS run also served 70 bounded
+history reads, with a maximum observed response time of 1,580 ms. It is shorter
+stress evidence, not the sustained target rating. Raw evidence is in
+[1ksps-results.json](1ksps-results.json).
 
-IndexedDB writes request `durability: "strict"` and wait for transaction
-completion before advancing a cursor. See the [browser transaction API](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction).
+These are synthetic elapsed-time tests on the Windows development PC with real
+UDP, HTTP, disk flushes or IndexedDB transactions, and PostgreSQL. They do not
+establish performance on an attached board or physical phone. Receiver-buffer
+retirement after consumption is normal; reader-specific `missedFrames` is the
+loss check. All runs exceed the receiver's 60,000-frame retention capacity.
 
-## Repeat the throughput test
+An earlier concurrent 3kSPS stress attempt exceeded the **unchanged 10-second
+final-drain limit** while two acceptance verifiers repeatedly sorted millions
+of database rows. The verifier now orders by the indexed raw timestamp rather
+than its formatted text alias. The subsequent 3kSPS run with a normal live
+viewer passed. Database overload can still exhaust finite buffers; it must not
+be described as reliable operation.
 
-Install the app dependencies, initialize Flutter and prepare the local test
-database using the existing setup. From `app/` in the integration checkout (or
-the root of the standalone app):
+Regression checks passed: **34 API tests with PostgreSQL**, **42 Flutter tests**,
+**9 Python + 3 Node + 3 Dart shared-contract tests**, and **zero analyzer issues**.
+Normal web and Android debug builds passed. The existing USB build repair keeps
+upstream runtime sources and the native driver unchanged; see
+`apps/monitor/third_party/usb_serial/CAPSTONE_PATCH.md`.
+
+## What supports the higher rate
+
+1. **Preserve sub-millisecond timing.** Device-clock intervals are anchored once
+   to host UTC, retaining microseconds across packet delivery jitter and host
+   clock adjustments. An estimated device restart starts a new anchor while
+   keeping keys monotonic. API validation accepts up to six fractional digits;
+   PostgreSQL history emits precise ISO text instead of a truncated JavaScript
+   Date. Direct BLE/USB collection and history filters also preserve microseconds.
+   A 2kHz frame retains its 500-microsecond spacing; it is no longer stretched
+   to 1 ms. Absolute UTC remains an estimate, not clock synchronization.
+2. **Up to four batches can upload concurrently.** Each still contains at most
+   1,000 frames. Failures stop new dispatch; every in-flight request and durable
+   acknowledgement settles before flush returns or ownership changes. Only
+   acknowledged batches leave the pending journal. Retries preserve timestamps.
+3. **Receiving remains independent.** The 250 ms pump fetches up to eight
+   1,000-frame pages per turn and saves before advancing its arrival cursor.
+   Uploading and one-second screen refreshes cannot hold the acquisition pump.
+   The UI tests now cover both 1kSPS and 2kSPS while uploads/history are blocked.
+4. **Bounded retention and append journals remain in use.** The receiver ring
+   retains 60,000 frames with constant-time insertion. The UDP socket requests
+   4 MiB (4,194,304 bytes observed here). Flushed native append records and strict
+   IndexedDB transactions preserve pending data, compact periodically and keep
+   500 acknowledged frames. A full pending journal holds the fetch cursor.
+
+Measurement BLE UUIDs, BM/BB packet layouts, the ADC pipeline, queues, timer,
+SQL uniqueness key and provisioning v1 contracts are preserved. No schema
+migration is needed: the existing PostgreSQL timestamps retain microseconds.
+Restart the API and rebuild/relaunch the collector to use these changes.
+
+## Repeat the acceptance tests
+
+Prepare the local test database and dependencies with the existing setup. From
+`app/` in the integration checkout, or the standalone application root:
 
 ```powershell
 $env:TEST_DATABASE_URL = 'postgresql://capstone@127.0.0.1:55432/capstone'
-$env:PUB_CACHE = 'C:/path/to/pub-cache' # Only if your SDK uses a custom cache.
+$env:THROUGHPUT_FPS = '2000'
+$env:THROUGHPUT_FRAMES = '360000' # Three minutes at 2kSPS.
+$env:THROUGHPUT_UPLOAD_DELAY_MS = '750'
 node tools/throughput-test.mjs C:/path/to/flutter/bin/flutter.bat
 ```
 
-For browser acceptance, add these before the same command:
+Set `PUB_CACHE` if your SDK uses a custom cache. For the same browser test, add:
 
 ```powershell
 $env:THROUGHPUT_BROWSER = '1'
 $env:CHROME_EXECUTABLE = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 ```
 
-For software capacity headroom, set `THROUGHPUT_FPS=2000`. `THROUGHPUT_FRAMES`
-defaults to 60000 and must be a multiple of ten. Use at least 60,000 for acceptance
-so the complete outage/recovery scenario runs. Remove these variables for the
-default native 1kSPS run. On macOS/Linux, pass the Flutter executable path.
+For the minimum baseline: remove `THROUGHPUT_BROWSER`, set FPS to `1000` and
+frames to `120000`. For the shorter stress case: FPS `3000`, frames `180000`,
+`THROUGHPUT_VIEWER='1'`, native mode. Rates 1000, 2000 and 3000 are supported;
+frames must be divisible by ten and represent at least 30 seconds. Defaults
+are native 1000 FPS, 60000 frames, and 750 ms extra upload delay. On macOS/Linux
+pass the Flutter executable path. Do not run expensive post-capture database
+verification jobs concurrently when establishing the normal operating rating.
 
-The generator runs in an independent worker so API/SQL stalls do not slow it
-and conceal loss. It waits for every UDP send callback before closing. The
-collector runs the production pump and platform journal on real elapsed time.
-The test verifies generated/sent/received/saved counts, every stored channel and
-voltage, unique timestamps, zero reader misses, outage retry and journal reload.
-Test devices/sessions are uniquely named and deleted afterward; existing user
-records are preserved. Test-only outage endpoints are never added to production.
-The last `THROUGHPUT_RESULT` must report zero errors and exact counts. A nonzero
-exit, an untested runtime, or a skipped test is not acceptance evidence.
+The independent producer uses the correct device-clock period for each rate;
+API/SQL pauses cannot slow generation to hide lost samples. The harness requires
+exact generated/sent/received/saved/SQL counts, every voltage, every timestamp,
+zero reader misses, outage/retry/reload recovery and final drain within 10 seconds.
+Unique test records are cleaned up. Test-only failure routes are absent from
+production. A nonzero exit or skipped test is **failed/unverified acceptance**.
+Browser mode builds a separate test entry point with local engine assets and an
+isolated temporary profile, using the same production collector and journal.
 
-Browser mode builds a separate test entry point and serves its local engine
-assets to headless Chrome with an isolated temporary profile. It runs the same
-acceptance assertions as the VM test using the production IndexedDB journal.
-This avoids a Windows path bug in the installed Flutter browser test server;
-no SDK patch is required. The normal web application build is separate.
-
-## Next bench steps — do these before declaring the full system lossless
+## Next bench steps — complete before claiming physical reliability
 
 | Order | Action | Pass condition |
 | --- | --- | --- |
-| 1 | Build the unchanged measurement firmware with ESP-IDF on the firmware machine; use the actual ADC and intended router | Build passes; acquisition clock/ADC are configured for 1,000 complete frames/s |
-| 2 | Run one collector in the foreground on the target physical phone, with the production API/database | Ten-minute run maintains 1kSPS and records every accepted frame with 16 readings |
-| 3 | Record synchronized before/after board and receiver counters plus SQL counts | `framesDropped`, `bufferOverflows`, `missedTimingEvents`, `adcReadErrors`, `networkFramesNotSent`, send failures, receiver sequence gaps, reader misses and CRC errors remain zero; reconcile in-flight queue/batch frames at boundaries |
-| 4 | Interrupt database uploads for ten seconds while UDP/paging remain reachable; restore uploads | Pending grows, acquisition continues, backlog drains, exact stored counts/voltages remain intact |
-| 5 | Repeat during the required BLE provisioning/security/scan/reconnect cases | Provisioning does not introduce timing misses, queue overflow or telemetry loss; credential safety remains intact |
-| 6 | Review evidence with the team | Merge remains a later user decision; never merge main automatically |
+| **1 — board** | Build with ESP-IDF; use the real ADC and intended router | Existing 1kHz acquisition builds; ADC read time stays below 1 ms; timing misses, read errors and queue overflow stay zero |
+| **2 — phone** | Run the foreground collector on the intended phone, router and deployment database for at least ten minutes at 1kSPS | Every complete frame reaches SQL with 16 readings; no send errors, sequence gaps, CRC errors or reader misses |
+| **3 — recovery** | Add 750 ms upload latency and interrupt uploads for ten seconds, keeping UDP/paging reachable | Capture continues; durable backlog drains; lost responses retry without duplicates; no missing readings |
+| **4 — headroom** | Feed the target phone a verified 2kSPS UDP source for at least ten minutes, with live history open | Correct counts, microsecond intervals and voltage values; pending backlog remains bounded and final drain is under ten seconds |
+| **5 — integration** | Repeat provisioning security, scan, reconnect and persistence cases from the authoritative specification | Provisioning causes no acquisition timing miss, queue overflow or telemetry loss; credentials remain protected |
+| **6 — review** | Record board/API/collector/SQL counters and artifacts; review with the team | Physical gates pass; merging remains a later user decision |
 
-## Operating limits that still matter
+Before and after each physical run, reconcile in-flight queue/batch frames and
+record `framesDropped`, `bufferOverflows`, `missedTimingEvents`, `adcReadErrors`,
+`networkFramesNotSent`, send failures, receiver gaps, reader misses and CRC errors.
+Changing the board itself to acquire above 1kHz needs a separate ADC/timing budget
+and firmware review; simply increasing its preserved timer is not this change.
 
-- **UDP is unacknowledged.** The current firmware drops a batch on failed send
-  and has no retransmission contract. Software capacity cannot guarantee delivery
-  across RF loss or router disconnection. An absolute delivery guarantee would
-  require a separately specified acknowledged/replay transport and board testing.
-- **Buffers are finite.** Each API source retains 60,000 frames; the local
-  journal permits 60,000 pending frames (about 60 seconds at 1kSPS). A full
-  journal refuses to advance the fetch cursor. A longer outage can still overrun
-  retention; reader misses and UDP gaps must be treated as failed acceptance.
-  Average upload and database commit throughput must keep pace with acquisition.
-- **A whole API outage differs from an upload outage.** Pages cannot be fetched
-  while that API is unreachable. The API buffer is in memory and is lost on
-  receiver restart; the collector stops on a stream-ID change. Successfully
-  journaled frames still survive and can upload afterward.
-- **Keep one collector active and the phone app in the foreground.** There is no
-  new background service or screen-off guarantee. Browser storage quota/eviction
-  and CPU scheduling still require testing on the intended device/browser.
-- **BLE/USB are snapshots in current firmware.** They do not deliver the full
-  1kSPS stream. Their direct collector now saves independently of upload waits,
-  but changing their wire rate is separate hardware work.
+## Operating limits
 
-## Files future work should start with
+- **UDP has no acknowledgement/replay.** Current firmware discards failed sends.
+  RF loss or router outages can lose data despite adequate software capacity.
+  Absolute delivery through those failures needs a specified replay transport
+  and physical validation.
+- **Buffers are finite:** 60,000 frames means 60 seconds at 1kSPS, 30 at 2kSPS,
+  or 20 at 3kSPS before accounting for existing backlog. Average database commit
+  throughput must exceed input rate to recover outages. Heavy query load and
+  slower deployment links can change that balance.
+- **A whole API outage differs from an upload outage.** Paging cannot run while
+  the API is unreachable; its in-memory ring is lost on restart. A stream-ID
+  change stops capture. Already-journaled frames still survive for later upload.
+- **Use one foreground collector.** Screen-off/background scheduling, phone
+  thermal limits, browser quota/eviction and cross-tab ownership remain physical
+  acceptance concerns. Current firmware BLE/USB telemetry sends slower snapshots;
+  only UDP presently carries the full measurement stream.
 
-| Area | Files |
+## Files to use for future development
+
+| Area | Start here |
 | --- | --- |
-| Collector/UI ownership | `apps/monitor/lib/buffered_capture.dart`, `screens.dart`, `direct_capture.dart`, `device_connections.dart` |
-| Durable buffering/recovery | `capture_log.dart`, `file_capture_journal.dart`, `browser_capture_journal.dart`, `capture_journal_codec.dart` |
-| API retention/socket/SQL | `apps/api/src/device-receiver.js`, `device-listener.js`, `postgres-store.js` |
-| Repeatable acceptance | `tools/throughput-test.mjs`, `throughput-producer.mjs`, `apps/monitor/test/throughput_acceptance_test.dart` |
-| Hardware limits (repository root) | `main/network_consumer.cpp`, `components/udp/udp_transport.cpp`, `components/acquisition/`, `components/diagnostics/` |
+| Capture ownership / UI | `apps/monitor/lib/buffered_capture.dart`, `direct_capture.dart`, `screens.dart` |
+| Durable buffering / upload workers | `capture_log.dart`, `file_capture_journal.dart`, `browser_capture_journal.dart` |
+| Timestamp fidelity / SQL / receiver | `apps/api/src/sample-time.js`, `validation.js`, `postgres-store.js`, `device-receiver.js` |
+| Repeatable acceptance | `tools/throughput-test.mjs`, `throughput-producer.mjs`, `apps/monitor/test/support/throughput_check.dart` |
+| Physical limits at repository root | `components/acquisition/`, `components/adc/`, `main/network_consumer.cpp`, `components/udp/`, `components/diagnostics/` |
 
 The provisioning v1 specification remains authoritative for provisioning; this
-guide concerns measurement performance and does not alter that protocol.
+guide covers measurement performance and future physical acceptance.

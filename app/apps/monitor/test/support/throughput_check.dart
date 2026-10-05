@@ -76,6 +76,7 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
     final deadline = DateTime.now()
         .add(Duration(seconds: expected ~/ (config['fps'] as int) + 90));
     var savedBeforeReload = 0;
+    DateTime? producerFinished;
     try {
       while (true) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -101,6 +102,11 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
         final status =
             jsonDecode((await client.get(Uri.parse('$url/test/status'))).body)
                 as Map;
+        if (status['producer'] != null) producerFinished ??= DateTime.now();
+        if (producerFinished != null) {
+          check(DateTime.now().difference(producerFinished).inSeconds < 10,
+              'Final backlog took more than 10 seconds to drain');
+        }
         if (status['producer'] != null &&
             savedBeforeReload + capture.saved == expected &&
             log.pending == 0 &&
@@ -129,7 +135,8 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
       'missed': capture.missed,
       'maxPending': maxPending,
       'uploadFailures': outages,
-      'restartRecovered': reloaded
+      'restartRecovered': reloaded,
+      'drainMs': DateTime.now().difference(producerFinished!).inMilliseconds
     };
   } finally {
     api.close();

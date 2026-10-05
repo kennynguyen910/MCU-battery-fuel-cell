@@ -12,7 +12,7 @@ export const scenarios = Object.freeze({
 });
 
 // Same wire format as firmware: 10-byte BB envelope plus 10 BM frames.
-export function encodeBatch(sequence, batchSequence) {
+export function encodeBatch(sequence, batchSequence, fps = 1000) {
   const bytes = Buffer.alloc(890);
   bytes.writeUInt16BE(0x4242, 0); bytes[2] = 1; bytes[3] = 2;
   bytes.writeUInt16BE(10, 4); bytes.writeUInt32BE(batchSequence >>> 0, 6);
@@ -21,7 +21,7 @@ export function encodeBatch(sequence, batchSequence) {
     const seq = (sequence + i) >>> 0;
     frame.writeUInt16BE(0x424d, 0); frame[2] = 1; frame[3] = 1;
     frame.writeUInt32BE(seq, 4);
-    frame.writeBigUInt64BE(BigInt(seq) * 1000n, 8);
+    frame.writeBigUInt64BE(BigInt(seq) * 1_000_000n / BigInt(fps), 8);
     for (let channel = 0; channel < 16; channel++) {
       frame.writeInt32BE(Math.round(1_000_000 * (Math.sin(seq / 500 + channel / 4) + channel / 20)), 16 + channel * 4);
     }

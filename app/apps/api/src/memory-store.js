@@ -1,6 +1,7 @@
 // Small nonpersistent adapter used by fast HTTP tests. It mirrors PostgreSQL's
 // public behavior—including idempotent measurement retries—as closely as useful.
 import { randomUUID } from "node:crypto";
+import { compareTimes } from './sample-time.js';
 
 
 export class MemoryStore {
@@ -31,9 +32,8 @@ export class MemoryStore {
   // Filtering compares instants, while sorting keeps newest sessions first.
   async listSessions({ from, to } = {}) {
     return this.sessions.filter((session) => {
-      const time = new Date(session.startTime).valueOf();
-      return (!from || time >= new Date(from).valueOf()) && (!to || time <= new Date(to).valueOf());
-    }).sort((a, b) => b.startTime.localeCompare(a.startTime));
+      return (!from || compareTimes(session.startTime, from) >= 0) && (!to || compareTimes(session.startTime, to) <= 0);
+    }).sort((a, b) => compareTimes(b.startTime, a.startTime));
   }
 
   // Copy the device display fields into the response just like the SQL join.
@@ -49,7 +49,7 @@ export class MemoryStore {
     }
     const session = {
       sessionId: randomUUID(), deviceId, deviceName: device.deviceName,
-      serialNumber: device.serialNumber, sessionName, startTime: new Date(startTime).toISOString(),
+      serialNumber: device.serialNumber, sessionName, startTime,
       endTime: null, notes,
     };
     this.sessions.push(session);
@@ -76,8 +76,8 @@ export class MemoryStore {
     }
     // Session end time is the maximum sample ever received, not batch order.
     const latestRecordedAt = samples.reduce((latest, sample) =>
-      sample.recordedAt > latest ? sample.recordedAt : latest, samples[0].recordedAt);
-    session.endTime = !session.endTime || latestRecordedAt > session.endTime
+      compareTimes(sample.recordedAt, latest) > 0 ? sample.recordedAt : latest, samples[0].recordedAt);
+    session.endTime = !session.endTime || compareTimes(latestRecordedAt, session.endTime) > 0
       ? latestRecordedAt : session.endTime;
     return { insertedMeasurements: samples.length * 16 };
   }
@@ -88,10 +88,9 @@ export class MemoryStore {
     if (!session) return null;
     if (metadataOnly) return {...session};
     const measurements = (this.measurements.get(sessionId) || []).filter((row) => {
-      const time = new Date(row.recordedAt).valueOf();
-      return (!from || time >= new Date(from).valueOf()) && (!to || time <= new Date(to).valueOf());
+      return (!from || compareTimes(row.recordedAt, from) >= 0) && (!to || compareTimes(row.recordedAt, to) <= 0);
     });
-    measurements.sort((a,b) => a.recordedAt.localeCompare(b.recordedAt) || a.channel-b.channel);
+    measurements.sort((a,b) => compareTimes(a.recordedAt,b.recordedAt) || a.channel-b.channel);
     return { ...session, measurements: recent ? measurements.slice(-16000) : measurements,
       measurementCount: measurements.length, truncated: recent && measurements.length > 16000 };
   }

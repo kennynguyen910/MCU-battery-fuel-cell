@@ -64,11 +64,12 @@ without returning historical frames. It returns `streamId` and `nextCursor`.
 Pass those as `streamId` and `afterCursor` on subsequent requests. `limit` is
 1–1,000. Each response advances only through the returned page, reports
 `hasMore`, and counts frames no longer retained as `missedFrames`. Retention is
-10,000 frames per source. `streamReset` means a receiver/source was recreated;
+60,000 frames per source. `streamReset` means a receiver/source was recreated;
 stop capture and establish a fresh baseline. Firmware sequence resets do not
 reset arrival cursors. Legacy `afterSequence` paging is retained for compatibility.
 
-`recordedAt` is an estimated, strictly increasing millisecond sample time;
+`recordedAt` is an estimated, strictly increasing microsecond sample time,
+anchored once per estimated boot to host UTC using the MCU's relative clock;
 `receivedAt` is actual arrival time. The collector preserves recordedAt on retry.
 `GET /sessions/:id?recent=1` returns at most the latest 16,000 measurement rows,
 with `measurementCount` and `truncated`; time filters apply before this limit.
@@ -119,7 +120,8 @@ Success: 201 with {"insertedMeasurements":16}. Postgres counts processed rows,
 including existing keys updated during retry. Exactly 16 finite numeric voltages
 in [-5,+5] are required. The samples array must contain 1–1,000 items. Every
 timestamp must be a real calendar time, include an explicit timezone, and use no
-more than millisecond precision; it is normalized to UTC. Preserve timestamps
+more than microsecond precision (six fractional digits); it is normalized to UTC without
+truncating sub-millisecond intervals. Preserve timestamps
 on retry.
 
 ## Web readback
@@ -133,7 +135,10 @@ sessionName, startTime, endTime, notes, and measurements. A measurement is:
 
 Session-list from/to filters apply to session startTime. Detail from/to filters
 apply to measurement recordedAt, inclusive. The web UI exposes From/To UTC fields.
-Accepted format: YYYY-MM-DDTHH:mm:ssZ with optional 1–3 fractional-second digits.
+Accepted format: YYYY-MM-DDTHH:mm:ssZ with optional 1–6 fractional-second digits.
+PostgreSQL readback emits ISO text with six fractional digits, preserving distinct
+frames within the same millisecond. Batch uploads may complete out of order;
+session endTime remains the precise maximum committed sample time.
 Invalid calendar dates, missing UTC timezone, and reversed ranges return 400.
 Leave a boundary out for an open-ended range; omit both for full history.
 Pagination remains future work.

@@ -12,7 +12,7 @@ parentPort.on('message', message => {
     timer = setInterval(() => {
       const due = Math.min(workerData.frames, Math.floor((performance.now() - start) * workerData.fps / 10000) * 10);
       while (generated < due) {
-        const bytes = encodeBatch(generated, generated / 10); generated += 10;
+        const bytes = encodeBatch(generated, generated / 10, workerData.fps); generated += 10;
         socket.send(bytes, workerData.port, '127.0.0.1', error => {
           if (error) sendErrors++; else sent += 10;
           if (sent + sendErrors * 10 === workerData.frames) {

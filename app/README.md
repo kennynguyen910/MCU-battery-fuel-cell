@@ -38,7 +38,10 @@ reads that stored session. UDP capture fetches buffered pages and uploads up to
 1,000 frames per request; the one-second screen refresh is not the capture rate.
 Capture runs independently of display updates and uploads. The receiver retains
 60,000 frames per source; the collector journals up to 60,000 pending frames.
-See the [1kSPS performance and bench acceptance guide](docs/1ksps-capture.md)
+Uploads use up to four concurrent batches; timestamps retain microseconds.
+Native and browser software tests passed sustained 2kSPS, with a 1kSPS minimum
+and shorter native 3kSPS stress evidence. Physical phone/board acceptance remains.
+See the [capture performance and next-steps guide](docs/1ksps-capture.md)
 for sustained-load results, repeatable tests and remaining physical validation.
 
 ## Open the working previews

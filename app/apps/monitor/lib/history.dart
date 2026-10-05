@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 DateTime? parseUtcBoundary(String text) {
   if (text.trim().isEmpty) return null;
   final value = text.trim();
-  final pattern = RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$');
+  final pattern = RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$');
   final parsed = DateTime.tryParse(value);
   if (!pattern.hasMatch(value) ||
       parsed == null ||

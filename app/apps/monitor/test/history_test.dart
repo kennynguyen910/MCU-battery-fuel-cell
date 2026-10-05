@@ -8,7 +8,12 @@ void main() {
     // Empty is a supported open boundary; malformed non-empty text is not.
     expect(parseUtcBoundary(''), isNull);
     expect(parseUtcBoundary('2026-09-14T12:00:00Z')!.isUtc, true);
-    for (final invalid in ['2026-02-30T12:00:00Z', '2026-09-14T12:00:00']) {
+    expect(parseUtcBoundary('2026-09-14T12:00:00.000500Z')!.microsecond, 500);
+    for (final invalid in [
+      '2026-02-30T12:00:00Z',
+      '2026-09-14T12:00:00',
+      '2026-09-14T12:00:00.0000001Z'
+    ]) {
       expect(() => parseUtcBoundary(invalid), throwsFormatException);
     }
   });

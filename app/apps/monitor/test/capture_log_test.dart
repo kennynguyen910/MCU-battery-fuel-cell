@@ -1,6 +1,7 @@
 // Durable-log unit test. Injected string storage simulates an app restart without
 // touching a student's real files or browser localStorage.
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -8,6 +9,55 @@ import 'package:capstone_monitor/api.dart';
 import 'package:capstone_monitor/capture_log.dart';
 
 void main() {
+  test('bounded parallel uploads await every acknowledgement before failure',
+      () async {
+    final log = CaptureLog(read: () async => null, write: (_) async {});
+    await log.appendAll(
+        Api.defaultUrl,
+        's',
+        List.generate(
+            6000,
+            (i) => <String, dynamic>{
+                  'frameId': '$i',
+                  'recordedAt': '2026-10-05T12:00:00Z',
+                  'channels': List.filled(16, 1.0)
+                }));
+    final requests = <Completer<http.Response>>[];
+    final api = Api(client: MockClient((_) {
+      final gate = Completer<http.Response>();
+      requests.add(gate);
+      return gate.future;
+    }));
+    var finished = false;
+    final first = log.flush(api);
+    final second = log.flush(api);
+    final checks = [
+      expectLater(first, throwsA(isA<ApiException>()))
+          .then((_) => finished = true),
+      expectLater(second, throwsA(isA<ApiException>()))
+    ];
+    while (requests.length < 4) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(requests.length, 4);
+    requests[0].complete(http.Response('{}', 503));
+    await Future<void>.delayed(Duration.zero);
+    expect(finished, false);
+    for (final gate in requests.skip(1)) {
+      gate.complete(http.Response('{}', 201));
+    }
+    await Future.wait(checks);
+    expect(requests.length,
+        4); // Failure stops dispatch of the remaining two jobs.
+    expect(
+        log.pending, 3000); // Failed and undispatched batches remain durable.
+    api.close();
+    final online =
+        Api(client: MockClient((_) async => http.Response('{}', 201)));
+    expect(await log.flush(online), 3000);
+    expect(log.pending, 0);
+    online.close();
+  });
   test('failed local write leaves frames available for a durable retry',
       () async {
     var fail = true;

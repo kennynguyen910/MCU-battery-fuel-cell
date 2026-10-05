@@ -4,6 +4,7 @@ import pg from "pg";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { compareTimes } from './sample-time.js';
 
 const { Pool } = pg;
 
@@ -14,8 +15,9 @@ const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 // Shared projection keeps list/detail field names consistent for Flutter.
 const sessionSelect = `
   SELECT s.session_id AS "sessionId", s.device_id AS "deviceId",
-    s.session_name AS "sessionName", s.start_time AS "startTime",
-    s.end_time AS "endTime", s.notes, d.device_name AS "deviceName",
+    s.session_name AS "sessionName",
+    to_char(s.start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startTime",
+    to_char(s.end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "endTime", s.notes, d.device_name AS "deviceName",
     d.serial_number AS "serialNumber"
   FROM test_session s JOIN monitor_device d USING (device_id)`;
 
@@ -87,7 +89,7 @@ export class PostgresStore {
         [sessionId, times, channels, voltages]);
       // Reduce across the batch because clients are not required to sort samples.
       const latestRecordedAt = samples.reduce((latest, sample) =>
-        sample.recordedAt > latest ? sample.recordedAt : latest, samples[0].recordedAt);
+        compareTimes(sample.recordedAt, latest) > 0 ? sample.recordedAt : latest, samples[0].recordedAt);
       await client.query(`UPDATE test_session SET end_time = GREATEST(COALESCE(end_time, $2), $2) WHERE session_id = $1`, [sessionId, latestRecordedAt]);
       await client.query("COMMIT");
       return { insertedMeasurements: samples.length * 16 };
@@ -108,7 +110,9 @@ export class PostgresStore {
     const clauses = ["session_id = $1"];
     if (from) { values.push(from); clauses.push(`recorded_at >= $${values.length}`); }
     if (to) { values.push(to); clauses.push(`recorded_at <= $${values.length}`); }
-    const { rows } = await this.pool.query(`SELECT recorded_at AS "recordedAt", channel, voltage FROM measurement WHERE ${clauses.join(" AND ")} ORDER BY recorded_at ${recent ? 'DESC' : 'ASC'}, channel ${recent ? 'LIMIT 16000' : ''}`, values);
+    // pg's Date decoder truncates microseconds. Project ISO text for measurements
+    // so separate >1 kHz frames remain separate when the viewer reads them back.
+    const { rows } = await this.pool.query(`SELECT to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "recordedAt", channel, voltage FROM measurement WHERE ${clauses.join(" AND ")} ORDER BY recorded_at ${recent ? 'DESC' : 'ASC'}, channel ${recent ? 'LIMIT 16000' : ''}`, values);
     const measurementCount = recent ? Number((await this.pool.query(`SELECT count(*) AS count FROM measurement WHERE ${clauses.join(' AND ')}`, values)).rows[0].count) : rows.length;
     return { ...sessionResult.rows[0], measurements: rows, measurementCount, truncated: measurementCount > rows.length };
   }

@@ -9,5 +9,5 @@ void main() {
       () async {
     final result = await runThroughputAcceptance(url);
     print('DART_THROUGHPUT_RESULT ${jsonEncode(result)}');
-  }, timeout: const Timeout(Duration(minutes: 4)));
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }

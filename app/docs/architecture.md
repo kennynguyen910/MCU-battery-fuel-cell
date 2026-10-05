@@ -71,10 +71,10 @@ idempotency for tests but does not provide process-restart durability.
 ## Deliberate limits
 
 Manual test input keeps only its latest publication. UDP device capture uses a
-10,000-frame buffer per sender and pages by arrival cursor, independently of the
+60,000-frame ring per sender and pages by arrival cursor, independently of the
 one-second display refresh. Uploads use batches of up to 1,000 frames and bulk
 SQL inserts. History charts read the latest 1,000 frames while reporting the full
-stored count. The local log retains all pending frames (up to 10,000) and the last
+stored count. The platform journal retains all pending frames (up to 60,000) and the last
 500 uploaded frames. Long outages or sustained overload can exhaust the receiver
 buffer; the collector reports missed buffered frames instead of hiding the gap.
 
@@ -89,26 +89,29 @@ The laptop API can receive version-1 UDP measurements and ten-frame batches from
 the ESP32, validate each frame's header and CRC, and expose the latest frame per
 sender. A logged-in operator selects a discovered sender and pairs its IP-based
 record before creating a session. The mobile collector reads the selected
-sender's latest frame, logs it, and uploads it to that session. Pairing is an
+sender's buffered frames, journals them, and uploads them to that session. Pairing is an
 app-side selection; the current firmware does not authenticate itself.
 
-The one-second collector poll reads buffered pages, up to three 1,000-frame pages
-per poll, and uploads complete batches. A per-source arrival cursor advances
+An independent 250 ms collector pump reads up to eight 1,000-frame pages per
+turn; up to four 1,000-frame upload requests run concurrently outside the local
+commit lock. The screen refreshes once per second. A per-source arrival cursor advances
 only after a page is logged locally. Unlike the firmware sequence, it survives
 device sequence resets and wraparound. A receiver restart changes the stream ID
 and stops capture until the operator starts again. The final buffered frames can
 be drained even after the sender becomes stale.
 
 Frames in a datagram no longer share a database timestamp: recordedAt is
-reconstructed from arrival time and intra-packet device timing, with a strictly
-increasing millisecond timestamp per source (designed for at most 1 kHz).
+reconstructed by anchoring the device clock once per estimated boot to host UTC,
+with strictly increasing microsecond timestamps that retain intervals above 1 kHz.
 receivedAt retains the actual datagram arrival time. These are estimated UTC
 sample times, not synchronized device-clock measurements. Retries preserve them.
 PostgreSQL inserts each batch in one statement. The local log retains all pending
-frames (up to 10,000) plus 500 acknowledged frames; complete history lives in SQL.
+frames (up to 60,000) plus 500 acknowledged frames; complete history lives in SQL.
 The web chart fetches the latest 1,000 samples in its selected time range and
 displays the full row count. No measurements are removed from the database.
 Keep validation, local log, and upload contract stable when extending transport.
+See the [capture next-steps guide](1ksps-capture.md) for sustained 2kSPS software
+results, the 1kSPS minimum, shorter 3kSPS stress evidence and physical acceptance.
 Randomized sensor sim-mode remains future work. The deterministic network lab
 uses the UDP receive boundary with explicit scenarios and synthetic-data labels.
 The graph already consumes stored sessions.

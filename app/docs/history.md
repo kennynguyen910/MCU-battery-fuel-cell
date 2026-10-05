@@ -4,7 +4,8 @@
 
 1. Select a saved test session in the web application.
 2. Leave From/To blank to see the full session, or enter UTC timestamps such as
-   2026-09-14T01:40:30Z. Optional milliseconds are accepted.
+   2026-09-14T01:40:30Z. Optional fractional seconds through microseconds are accepted,
+   such as 2026-09-14T01:40:30.000500Z.
 3. Press Apply time range. The API filters measurements, including both endpoints.
 4. Choose Graph CH 1 through Graph CH 16.
 5. Clear time range restores the full session.

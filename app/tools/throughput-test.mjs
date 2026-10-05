@@ -13,12 +13,16 @@ import cors from '../apps/api/node_modules/cors/lib/index.js';
 import { createApp } from '../apps/api/src/app.js';
 import { PostgresStore } from '../apps/api/src/postgres-store.js';
 import { startDeviceListener } from '../apps/api/src/device-listener.js';
+import { timestampMicros } from '../apps/api/src/sample-time.js';
 if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL is required (local test database).');
 const frames = Number(process.env.THROUGHPUT_FRAMES || 60000);
 const fps = Number(process.env.THROUGHPUT_FPS || 1000);
-if (!Number.isSafeInteger(frames) || frames < 10000 || frames % 10 || ![1000, 2000].includes(fps)) throw new Error('Use >=10000 frames in batches of 10; fps 1000 or 2000');
+const uploadDelayMs = Number(process.env.THROUGHPUT_UPLOAD_DELAY_MS ?? 750);
+if (!Number.isSafeInteger(frames) || frames < fps * 30 || frames % 10 || ![1000, 2000, 3000].includes(fps)) throw new Error('Use >=30 seconds of frames in batches of 10; fps 1000, 2000 or 3000');
+if (!Number.isSafeInteger(uploadDelayMs) || uploadDelayMs < 0 || uploadDelayMs > 5000) throw new Error('Use upload delay 0–5000 ms');
 const store = new PostgresStore(process.env.TEST_DATABASE_URL);
-let server, listener, worker, device, browser, browserProfile;
+let server, listener, worker, device, browser, browserProfile, viewerTimer, viewerTask, viewerError;
+let viewerRequests = 0, maxViewerMs = 0;
 const browserMode = process.env.THROUGHPUT_BROWSER === '1';
 let stats = null, startedAt = 0, uploadRequests = 0, outageRequests = 0, retryRequests = 0;
 try {
@@ -60,6 +64,9 @@ try {
           return original(body);
         };
       }
+      // Successful writes also remain slow: backlog must drain while acquisition
+      // continues, rather than letting a fast local database conceal latency.
+      await new Promise(resolve => setTimeout(resolve, uploadDelayMs));
     }
     next();
   });
@@ -67,6 +74,21 @@ try {
   server = host.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening',resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
+  if (process.env.THROUGHPUT_VIEWER === '1') {
+    viewerTimer = setInterval(() => {
+      if (viewerTask) return;
+      viewerTask = (async () => {
+        const start = Date.now();
+        try {
+          const response = await fetch(`${url}/api/sessions/${session.sessionId}?recent=1`, {signal:AbortSignal.timeout(5000)});
+          if (!response.ok) throw new Error(`Viewer HTTP ${response.status}`);
+          const history = await response.json();
+          if (history.measurements.length > 16000 || history.measurements.length % 16) throw new Error('Invalid bounded viewer history');
+          viewerRequests++; maxViewerMs = Math.max(maxViewerMs,Date.now()-start);
+        } catch (error) { viewerError ??= error; }
+      })().finally(() => { viewerTask = null; });
+    },1000);
+  }
   const flutter = process.argv[2] || 'flutter';
   const args = browserMode ? ['build','web','--no-pub','--no-web-resources-cdn','--no-wasm-dry-run',
       '--target=test/throughput_browser_main.dart','--output=build/throughput-web','--base-href=/bench/',`--dart-define=THROUGHPUT_URL=${url}`]
@@ -103,27 +125,34 @@ try {
       console.log('BROWSER_THROUGHPUT_RESULT '+JSON.stringify(result.result));
     } finally { clearTimeout(timeout); }
   }
+  clearInterval(viewerTimer); await viewerTask;
+  if (viewerError) throw viewerError;
   if (!stats || stats.generated !== frames || stats.sent !== frames || stats.sendErrors) throw new Error(`Generator failure: ${JSON.stringify(stats)}`);
   const source = api.locals.deviceSources()[0];
   if (source.uniqueFrames !== frames || source.missingFrames || source.invalidFrames) throw new Error('UDP reception lost frames');
   const count = (await store.pool.query('SELECT count(*)::int AS rows, count(DISTINCT recorded_at)::int AS frames FROM measurement WHERE session_id=$1',[session.sessionId])).rows[0];
   if (count.rows !== frames * 16 || count.frames !== frames) throw new Error(`SQL frame loss: ${JSON.stringify(count)}`);
   // Verify every stored channel, using bounded keyset reads (no million-row JSON).
-  let after = null, sequence = 0;
+  let after = null, sequence = 0, firstUs = null, lastUs = null;
   while (sequence < frames) {
-    const {rows} = await store.pool.query(`SELECT recorded_at,channel,voltage FROM measurement WHERE session_id=$1 AND ($2::timestamptz IS NULL OR recorded_at>$2) ORDER BY recorded_at,channel LIMIT 16000`,[session.sessionId,after]);
+    const {rows} = await store.pool.query(`SELECT to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at,channel,voltage FROM measurement WHERE session_id=$1 AND ($2::timestamptz IS NULL OR recorded_at>$2) ORDER BY measurement.recorded_at,channel LIMIT 16000`,[session.sessionId,after]);
     if (!rows.length || rows.length % 16) throw new Error('Incomplete SQL frame');
     for (let i=0;i<rows.length;i++) {
       const channel=i%16, seq=sequence+Math.floor(i/16);
       const expected=Math.round(1e6*(Math.sin(seq/500+channel/4)+channel/20))/1e6;
       if (rows[i].channel!==channel || Math.abs(rows[i].voltage-expected)>1e-12) throw new Error(`Corrupt SQL voltage at ${seq}/${channel}`);
+      const us = timestampMicros(rows[i].recorded_at);
+      firstUs ??= us;
+      if (us - firstUs !== BigInt(seq) * 1_000_000n / BigInt(fps)) throw new Error(`Distorted SQL sample timing at ${seq}/${channel}`);
+      lastUs = us;
     }
     sequence += rows.length/16; after=rows.at(-1).recorded_at;
   }
   if (!outageRequests || retryRequests!==1) throw new Error('Outage/retry scenarios did not run');
-  console.log('THROUGHPUT_RESULT '+JSON.stringify({fps, runtime:process.env.THROUGHPUT_BROWSER === '1' ? 'chrome' : 'dart-vm', ...stats, ...count, outageRequests, retryRequests,
+  console.log('THROUGHPUT_RESULT '+JSON.stringify({fps, uploadDelayMs, viewerRequests, maxViewerMs, recordedSpanUs:Number(lastUs-firstUs), everyTimestampVerified:true, runtime:process.env.THROUGHPUT_BROWSER === '1' ? 'chrome' : 'dart-vm', ...stats, ...count, outageRequests, retryRequests,
       missingFrames:source.missingFrames, invalidFrames:source.invalidFrames, actualReceiveBufferBytes:listener.getRecvBufferSize(), allVoltagesVerified:true}));
 } finally {
+  clearInterval(viewerTimer); await viewerTask;
   if (browser) {
     const closed = new Promise(resolve => browser.once('exit',resolve));
     browser.kill(); await Promise.race([closed, new Promise(resolve => setTimeout(resolve,3000))]);

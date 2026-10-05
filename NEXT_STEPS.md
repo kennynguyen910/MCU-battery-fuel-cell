@@ -8,9 +8,11 @@
 
 ## At a glance
 
-**Measurement performance update (October 5):** Native host tests now preserve
-60,000 complete frames at 1kSPS, including upload outage and journal recovery.
-See the [1kSPS capture guide](app/docs/1ksps-capture.md) for results, reproduction,
+**Measurement performance update (October 5):** Native and browser collectors
+each preserved 360,000 complete frames at 2kSPS over three minutes, including
+delayed uploads, outage recovery and accurate microsecond intervals. The 1kSPS
+minimum and a shorter 3kSPS stress run also passed.
+See the [capture next-steps guide](app/docs/1ksps-capture.md) for results, reproduction,
 and the physical phone/ESP32 gate. The linked September PDF remains a dated
 provisioning roadmap.
 
@@ -132,7 +134,7 @@ Record results in `app/docs/verification.md` with a linked firmware/bench eviden
 - Keep 16 channels, existing measurement UUIDs, 88-byte UDP frames, 80-byte BLE values, CRC32, and existing UDP batching.
 - Do not touch ADC acquisition, SampleFrame, queues, timer configuration, or the 1 kHz rate from provisioning.
 - Keep the mobile local-log/upload ownership path; UDP reception is a transient buffer, not a direct SQL writer.
-- MCU time since boot is not UTC. Preserve current timestamp estimation and retry identity.
+- MCU time since boot is not UTC. Preserve device intervals at microsecond precision, anchor estimated UTC once per boot, and retain timestamp identity on retry.
 
 ## Separate later work
 

@@ -1,5 +1,6 @@
 // Authoritative API validation. Flutter also validates for quick feedback, but
 // every client—including future hardware—must pass these server checks.
+import { timestampMicros, formatMicros, compareTimes } from './sample-time.js';
 export const CHANNEL_COUNT = 16;
 export const MAX_SAMPLES_PER_REQUEST = 1000;
 
@@ -36,7 +37,7 @@ function normalizeTimestamp(value, name) {
     throw new ValidationError(`${name} must be a valid timestamp with a timezone`);
   }
   const match = value.match(
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/i,
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/i,
   );
   const parsed = Date.parse(value);
   const day = match ? new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00.000Z`) : null;
@@ -47,7 +48,7 @@ function normalizeTimestamp(value, name) {
   if (!match || !Number.isFinite(parsed) || !validDay || !validTime) {
     throw new ValidationError(`${name} must be a valid timestamp with a timezone`);
   }
-  return new Date(parsed).toISOString();
+  return formatMicros(timestampMicros(value));
 }
 
 // PostgreSQL reports malformed UUIDs as database errors; reject them earlier with
@@ -86,14 +87,14 @@ export function validateRange(query) {
     const value = query[name];
     if (value === undefined) continue;
     if (typeof value !== 'string' ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(value) ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/.test(value) ||
         !Number.isFinite(Date.parse(value)) ||
         new Date(value).toISOString().slice(0, 19) !== value.slice(0, 19)) {
       throw new ValidationError(`${name} must be a valid UTC timestamp ending in Z`);
     }
-    result[name] = new Date(value).toISOString();
+    result[name] = normalizeTimestamp(value, name);
   }
-  if (result.from && result.to && result.from > result.to) {
+  if (result.from && result.to && compareTimes(result.from, result.to) > 0) {
     throw new ValidationError('from must be before or equal to to');
   }
   return result;

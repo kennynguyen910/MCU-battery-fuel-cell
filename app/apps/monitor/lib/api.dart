@@ -100,13 +100,7 @@ class Api {
         ? await request(
             '/devices', {'deviceName': deviceName, 'serialNumber': serial})
         : matching.first;
-    // The API accepts at most millisecond precision, but Dart's
-    // toIso8601String includes microseconds. Truncate before formatting.
-    final now = DateTime.now().toUtc();
-    final startTime = DateTime.fromMillisecondsSinceEpoch(
-            now.millisecondsSinceEpoch,
-            isUtc: true)
-        .toIso8601String();
+    final startTime = DateTime.now().toUtc().toIso8601String();
     final session = await request('/sessions', {
       'deviceId': device['deviceId'],
       'sessionName': name,
@@ -132,12 +126,9 @@ class Api {
     final session = await request('/sessions', {
       'deviceId': device['deviceId'],
       'sessionName': name,
-      'startTime': DateTime.fromMillisecondsSinceEpoch(
-              DateTime.now().millisecondsSinceEpoch,
-              isUtc: true)
-          .toIso8601String(),
+      'startTime': DateTime.now().toUtc().toIso8601String(),
       'notes':
-          'Direct Android $label. Phone receive timestamps; not a synchronized device clock.',
+          'Direct Android $label. Device intervals anchored to phone UTC; not a synchronized device clock.',
     });
     return session['sessionId'] as String;
   }

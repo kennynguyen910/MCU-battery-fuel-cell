@@ -12,6 +12,7 @@ class CaptureLog {
   final Future<void> Function(String) write;
   final LogOperation? operation;
   final int maxPending;
+  final int uploadConcurrency;
   List<Map<String, dynamic>> entries = [];
   Set<String> _known = {};
   Future<void> _committing = Future.value();
@@ -20,14 +21,20 @@ class CaptureLog {
       {Future<String?> Function()? read,
       Future<void> Function(String)? write,
       LogOperation? operation,
-      int? maxPending})
+      int? maxPending,
+      this.uploadConcurrency = 4})
       : read = read ?? storage.readLog,
         write = write ?? storage.writeLog,
         operation = operation ??
             (read == null && write == null && storage.journalSupported
                 ? storage.appendLogOperation
                 : null),
-        maxPending = maxPending ?? (storage.journalSupported ? 60000 : 10000);
+        maxPending = maxPending ?? (storage.journalSupported ? 60000 : 10000) {
+    if (uploadConcurrency < 1 || uploadConcurrency > 4) {
+      throw ArgumentError.value(
+          uploadConcurrency, 'uploadConcurrency', 'Use 1–4');
+    }
+  }
   String _key(Map<String, dynamic> e) =>
       '${e['apiUrl']}\u0000${e['sessionId']}\u0000${e['frameId']}';
   void _index() {
@@ -84,7 +91,8 @@ class CaptureLog {
         _known.addAll(keys);
       });
 
-  /// One uploader, finite snapshot. Producers continue while HTTP is pending.
+  /// One flush owner, bounded workers and a finite snapshot. Producers continue
+  /// while HTTP is pending. All in-flight acknowledgements settle before return.
   Future<int> flush(Api api) {
     if (_flushing != null) return _flushing!;
     final task = _flush(api);
@@ -100,32 +108,45 @@ class CaptureLog {
         .where((e) => e['uploaded'] != true && e['apiUrl'] == destination)
         .toList());
     var count = 0, index = 0;
-    while (index < todo.length) {
-      if (api.baseUrl != destination) break;
-      final sessionId = todo[index]['sessionId'] as String;
-      final batch = <Map<String, dynamic>>[];
-      while (index < todo.length &&
-          todo[index]['sessionId'] == sessionId &&
-          batch.length < 1000) {
-        batch.add(todo[index++]);
+    Object? failure;
+    StackTrace? failureStack;
+    Future<void> worker() async {
+      while (index < todo.length && failure == null) {
+        if (api.baseUrl != destination) break;
+        final sessionId = todo[index]['sessionId'] as String;
+        final batch = <Map<String, dynamic>>[];
+        while (index < todo.length &&
+            todo[index]['sessionId'] == sessionId &&
+            batch.length < 1000) {
+          batch.add(todo[index++]);
+        }
+        try {
+          await api.uploadFrames(sessionId, batch);
+          final ack = batch.map(_key).toSet();
+          await _commit(() async {
+            final next = entries
+                .map(
+                    (e) => ack.contains(_key(e)) ? {...e, 'uploaded': true} : e)
+                .toList();
+            final uploaded = next.where((e) => e['uploaded'] == true).toList();
+            final keep = uploaded
+                .skip(uploaded.length > 500 ? uploaded.length - 500 : 0)
+                .toSet();
+            next.removeWhere((e) => e['uploaded'] == true && !keep.contains(e));
+            await _save({'ack': ack.toList()}, next);
+            entries = next;
+            _index();
+          });
+          count += batch.length;
+        } catch (error, stack) {
+          failure ??= error;
+          failureStack ??= stack;
+        }
       }
-      await api.uploadFrames(sessionId, batch);
-      final ack = batch.map(_key).toSet();
-      await _commit(() async {
-        final next = entries
-            .map((e) => ack.contains(_key(e)) ? {...e, 'uploaded': true} : e)
-            .toList();
-        final uploaded = next.where((e) => e['uploaded'] == true).toList();
-        final keep = uploaded
-            .skip(uploaded.length > 500 ? uploaded.length - 500 : 0)
-            .toSet();
-        next.removeWhere((e) => e['uploaded'] == true && !keep.contains(e));
-        await _save({'ack': ack.toList()}, next);
-        entries = next;
-        _index();
-      });
-      count += batch.length;
     }
+
+    await Future.wait(List.generate(uploadConcurrency, (_) => worker()));
+    if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
     return count;
   }
 }

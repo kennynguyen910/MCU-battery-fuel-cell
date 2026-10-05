@@ -24,7 +24,7 @@ test('2500 buffered frames survive bulk PostgreSQL writes, retries, and bounded 
     } while(true);
     const history=await store.getSession(session.sessionId);
     assert.equal(history.measurements.length,40000);
-    assert.equal(new Set(history.measurements.map(r=>r.recordedAt.getTime())).size,2500);
+    assert.equal(new Set(history.measurements.map(r=>r.recordedAt)).size,2500);
     const recent=await store.getSession(session.sessionId,{recent:true});
     assert.equal(recent.measurements.length,16000);
     assert.equal(recent.measurementCount,40000);
