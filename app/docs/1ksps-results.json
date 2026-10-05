@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-05",
+  "environment": "Windows development PC; real UDP loopback, HTTP and PostgreSQL; production Dart collector and platform journals",
+  "frameDefinition": "16 channels per frame",
+  "hardwareAcceptance": "ESP32 and physical phone pending",
+  "runs": [
+    {
+      "runtime": "dart-vm/file-journal",
+      "fps": 1000,
+      "frames": 60000,
+      "elapsedMs": 60008.6295,
+      "sqlReadings": 960000,
+      "maxPending": 10740
+    },
+    {
+      "runtime": "dart-vm/file-journal",
+      "fps": 2000,
+      "frames": 60000,
+      "elapsedMs": 30009.8391,
+      "sqlReadings": 960000,
+      "maxPending": 21550
+    },
+    {
+      "runtime": "chrome/indexeddb-journal",
+      "fps": 1000,
+      "frames": 60000,
+      "elapsedMs": 60014.2153,
+      "sqlReadings": 960000,
+      "maxPending": 10750
+    },
+    {
+      "runtime": "dart-vm/file-journal",
+      "fps": 1000,
+      "frames": 120000,
+      "elapsedMs": 120014.3309,
+      "sqlReadings": 1920000,
+      "maxPending": 10760
+    }
+  ],
+  "assertionsPassedInEveryRun": {
+    "generatedEqualsSentEqualsReceivedEqualsSaved": true,
+    "sendErrors": 0,
+    "udpSequenceGaps": 0,
+    "invalidFrames": 0,
+    "readerMissedFrames": 0,
+    "everyStoredVoltageVerified": true,
+    "uniqueSqlFrameTimestamps": true,
+    "uploadOutageSeconds": 10,
+    "lostCommitResponsesRetried": 1,
+    "journalReloadRecovered": true,
+    "pendingAfterDrainAndReload": 0,
+    "actualUdpReceiveBufferBytes": 4194304
+  },
+  "regressionChecks": {
+    "apiTestsWithPostgres": 30,
+    "flutterTests": 39,
+    "sharedPythonTests": 9,
+    "sharedNodeTests": 3,
+    "sharedFlutterTests": 3,
+    "analyzerIssues": 0,
+    "normalWebBuild": "passed",
+    "androidDebugBuild": "passed; native activity verified in APK"
+  },
+  "limits": [
+    "Unacknowledged UDP cannot guarantee delivery through RF/router loss",
+    "Finite 60000-frame buffers",
+    "Foreground collector; physical device performance not yet verified",
+    "Current BLE/USB firmware sends slower snapshots"
+  ]
+}

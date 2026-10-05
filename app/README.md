@@ -36,7 +36,10 @@ receiver accepts validated UDP frames on the API laptop. Only the mobile
 collector uploads selected frames into a test session; the web application
 reads that stored session. UDP capture fetches buffered pages and uploads up to
 1,000 frames per request; the one-second screen refresh is not the capture rate.
-The receiver retains 10,000 frames per source and reports reader buffer losses.
+Capture runs independently of display updates and uploads. The receiver retains
+60,000 frames per source; the collector journals up to 60,000 pending frames.
+See the [1kSPS performance and bench acceptance guide](docs/1ksps-capture.md)
+for sustained-load results, repeatable tests and remaining physical validation.
 
 ## Open the working previews
 

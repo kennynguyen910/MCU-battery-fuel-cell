@@ -82,7 +82,8 @@ export class PostgresStore {
       });
       await client.query(`INSERT INTO measurement (session_id, recorded_at, channel, voltage)
         SELECT $1::uuid, x.t, x.c, x.v FROM unnest($2::timestamptz[], $3::int[], $4::double precision[]) AS x(t,c,v)
-        ON CONFLICT (session_id, recorded_at, channel) DO UPDATE SET voltage = EXCLUDED.voltage`,
+        ON CONFLICT (session_id, recorded_at, channel) DO UPDATE SET voltage = EXCLUDED.voltage
+        WHERE measurement.voltage IS DISTINCT FROM EXCLUDED.voltage`,
         [sessionId, times, channels, voltages]);
       // Reduce across the batch because clients are not required to sort samples.
       const latestRecordedAt = samples.reduce((latest, sample) =>

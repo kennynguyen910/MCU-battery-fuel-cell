@@ -70,42 +70,43 @@ class DirectCapture {
     _lastKey = null;
   }
 
-  Future<void> drain({bool upload = true}) async {
-    if (_draining != null) {
-      try {
-        await _draining;
-      } catch (_) {
-        if (upload) rethrow;
-      }
-      if (upload) return;
-    }
-    final operation = _drain(upload);
-    _draining = operation;
-    try {
-      await operation;
-    } finally {
-      _draining = null;
-    }
+  Future<void>? _uploading;
+  Future<void> get uploadsIdle => _uploading ?? Future.value();
+
+  Future<void> uploadPending() {
+    if (_uploading != null) return _uploading!;
+    final operation = _upload();
+    _uploading = operation;
+    return operation.whenComplete(() {
+      _uploading = null;
+    });
   }
 
-  Future<void> _drain(bool upload) async {
-    // Give a full durable log a chance to recover before appending more data.
-    // An offline API must not prevent saving the current notification batch.
-    Object? uploadError;
-    if (upload && log.pending > 0) {
+  Future<void> _upload() async {
+    uploaded += await log.flush(api);
+  }
+
+  Future<void> drain({bool upload = true}) async {
+    if (_draining != null) {
+      await _draining;
+    } else {
+      final operation = _savePending();
+      _draining = operation;
       try {
-        uploaded += await log.flush(api);
-      } catch (error) {
-        uploadError = error;
+        await operation;
+      } finally {
+        _draining = null;
       }
     }
-    // Save incoming data even if the API is unavailable.
-    if (_pending.isNotEmpty) {
+    if (upload) await uploadPending();
+  }
+
+  Future<void> _savePending() async {
+    // Bound each turn but persist multiple pages without waiting for uploads.
+    for (var page = 0; page < 8 && _pending.isNotEmpty; page++) {
       final batch = _pending.take(1000).toList();
       await log.appendAll(api.baseUrl, sessionId!, batch);
       _pending.removeRange(0, batch.length);
     }
-    if (uploadError != null) throw uploadError;
-    if (upload) uploaded += await log.flush(api);
   }
 }

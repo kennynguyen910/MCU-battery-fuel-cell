@@ -14,10 +14,12 @@ dependencies:
   http: ^1.6.0
   # Native collector logs belong in the app's documents directory.
   path_provider: ^2.1.5
-  # The browser preview stores the same logical log in localStorage.
+  # The browser collector stores batched journal records in IndexedDB.
   web: ^1.1.1
   flutter_reactive_ble: 5.6.0
-  usb_serial: 0.5.2
+  # Local build-only patch for Gradle 9; upstream Dart/Java behavior retained.
+  usb_serial:
+    path: third_party/usb_serial
   permission_handler: 13.0.2
 dev_dependencies:
   integration_test:

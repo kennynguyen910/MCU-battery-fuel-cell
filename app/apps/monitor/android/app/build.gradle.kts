@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.example.capstone_monitor"
-    compileSdk = flutter.compileSdkVersion
+    // BLE/permission plugins require API 37; retain the existing target/min SDK.
+    compileSdk = maxOf(37, flutter.compileSdkVersion)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

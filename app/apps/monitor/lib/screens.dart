@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'api.dart';
 import 'capture_log.dart';
+import 'buffered_capture.dart';
 import 'history.dart';
 import 'demo_widgets.dart';
 import 'device_connections.dart';
@@ -66,6 +67,9 @@ class _DashboardState extends State<Dashboard> {
   // Network and durable-log services live for the lifetime of this screen.
   late final Api api;
   late final CaptureLog log;
+  late final BufferedCapture buffered;
+  Timer? captureTimer, uploadTimer;
+  bool uploading = false;
   bool logReady = false;
   // Controllers preserve user input while one-second polling rebuilds widgets.
   final address = TextEditingController(text: Api.defaultUrl);
@@ -94,6 +98,7 @@ class _DashboardState extends State<Dashboard> {
   int missedBufferedFrames = 0;
   String historyQuery = '';
   String status = 'Connecting...', notice = '';
+  String? receiveProblem, uploadProblem;
   // `busy` protects polling, while `action` protects user-triggered operations.
   bool busy = false, action = false, capturing = false;
   int uploaded = 0;
@@ -109,7 +114,12 @@ class _DashboardState extends State<Dashboard> {
       sessionName.text = 'Network demo';
     }
     log = widget.log ?? CaptureLog();
+    buffered = BufferedCapture(api, log);
     initialize();
+    captureTimer = Timer.periodic(
+        const Duration(milliseconds: 250), (_) => collectBuffered());
+    uploadTimer = Timer.periodic(
+        const Duration(milliseconds: 500), (_) => retryUploads());
     // The API buffers the UDP stream, so this modest poll rate still collects
     // every frame by paging through the buffer instead of sampling the latest.
     timer = Timer.periodic(const Duration(seconds: 1), (_) => refresh());
@@ -180,9 +190,6 @@ class _DashboardState extends State<Dashboard> {
           rows = [];
         }
         if (widget.role == AppRole.mobile) {
-          // Clear a recovered upload backlog before accepting another page.
-          // Otherwise a full local log could prevent its own retry indefinitely.
-          uploaded += await log.flush(api);
           dynamic frame;
           bool invalidVoltage = false;
           if (deviceMode) {
@@ -205,44 +212,9 @@ class _DashboardState extends State<Dashboard> {
             invalidVoltage = live!.length != 16 ||
                 live!.any((v) => !v.isFinite || v < -5 || v > 5);
           }
-          if (capturing && selected != null) {
+          if (capturing && selected != null && !deviceMode) {
             final sessionId = selected!;
-            if (deviceMode) {
-              // Page through the server-side buffer so every wire-rate frame is
-              // logged, not just the one latest sample visible to this poll.
-              if (deviceIp != null) {
-                for (var fetch = 0; fetch < 3; fetch += 1) {
-                  final result = await api.deviceFrames(
-                      sourceIp: deviceIp,
-                      afterCursor: lastDeviceCursor,
-                      streamId: deviceStreamId);
-                  if (!mounted || !capturing || selected != sessionId) return;
-                  if (result['streamReset'] == true) {
-                    capturing = false;
-                    notice =
-                        'Receiver restarted. Start capture again to use the new stream.';
-                    break;
-                  }
-                  final frames = (result['frames'] as List)
-                      .whereType<Map>()
-                      .map((f) => Map<String, dynamic>.from(f))
-                      .where((f) {
-                    final channels = f['channels'];
-                    return channels is List &&
-                        channels.length == 16 &&
-                        channels.every(
-                            (v) => v is num && v.isFinite && v >= -5 && v <= 5);
-                  }).toList();
-                  await log.appendAll(api.baseUrl, sessionId, frames);
-                  // Advance only after the fetched page has been saved locally.
-                  lastDeviceCursor =
-                      result['nextCursor'] as int? ?? lastDeviceCursor;
-                  deviceStreamId = result['streamId'] as String?;
-                  missedBufferedFrames += result['missedFrames'] as int? ?? 0;
-                  if (result['hasMore'] != true) break;
-                }
-              }
-            } else if (frame != null &&
+            if (frame != null &&
                 !invalidVoltage &&
                 frame['frameId'] != lastFrame) {
               // Only a new frame is uploaded. Re-reading the same device value
@@ -255,7 +227,8 @@ class _DashboardState extends State<Dashboard> {
           }
           // Retry saved uploads even when capture has since been stopped. Stop
           // affects accepting new frames, never the safety of already-saved work.
-          uploaded += await log.flush(api);
+          if (!deviceMode) await retryUploads();
+          missedBufferedFrames = buffered.missed;
           captureSummary = invalidVoltage
               ? 'Device frame outside ±5 V or incomplete; shown but not uploaded.'
               : 'Uploaded $uploaded frame(s) in this app run. Pending: ${log.pending}. Buffer losses: $missedBufferedFrames.';
@@ -275,7 +248,12 @@ class _DashboardState extends State<Dashboard> {
           }
         }
       }
-      if (mounted) setState(() => status = 'Connected');
+      if (mounted)
+        setState(() => status = receiveProblem != null
+            ? 'Capture needs attention: $receiveProblem'
+            : uploadProblem != null
+                ? 'Saved uploads pending: $uploadProblem'
+                : 'Connected');
     } catch (error) {
       if (mounted)
         setState(() {
@@ -291,6 +269,59 @@ class _DashboardState extends State<Dashboard> {
         });
     } finally {
       busy = false;
+    }
+  }
+
+  void captureError(Object error, {bool receiving = false}) {
+    if (!mounted) return;
+    setState(() {
+      if (error is ApiException && error.statusCode == 401) {
+        loginRequired = true;
+        capturing = false;
+        buffered.stop();
+        api.token = null;
+        notice = 'Please log in to continue. Saved frames remain pending.';
+      } else if (!buffered.active && capturing && deviceMode) {
+        capturing = false;
+      }
+      if (receiving) {
+        receiveProblem = '$error';
+      } else {
+        uploadProblem = '$error';
+      }
+      status = 'Capture / upload pending: $error';
+    });
+  }
+
+  Future<void> collectBuffered() async {
+    if (!mounted || !capturing) {
+      buffered.stop();
+      return;
+    }
+    if (!logReady || action || loginRequired || !deviceMode) return;
+    try {
+      await buffered.pump();
+      receiveProblem = null;
+    } catch (error) {
+      captureError(error, receiving: true);
+    }
+  }
+
+  Future<void> retryUploads() async {
+    if (uploading ||
+        !mounted ||
+        !logReady ||
+        action ||
+        loginRequired ||
+        widget.role != AppRole.mobile) return;
+    uploading = true;
+    try {
+      uploaded += await log.flush(api);
+      uploadProblem = null;
+    } catch (error) {
+      captureError(error);
+    } finally {
+      uploading = false;
     }
   }
 
@@ -371,6 +402,7 @@ class _DashboardState extends State<Dashboard> {
     if (capturing) {
       setState(() {
         capturing = false;
+        buffered.stop();
         notice = 'Capture stopped. Already logged uploads can finish.';
       });
       return;
@@ -389,6 +421,9 @@ class _DashboardState extends State<Dashboard> {
         lastDeviceCursor = cursor['nextCursor'] as int?;
         deviceStreamId = cursor['streamId'] as String?;
         missedBufferedFrames = 0;
+        await buffered.idle;
+        buffered.start(
+            selected!, deviceIp!, lastDeviceCursor!, deviceStreamId!);
       } else {
         baseline = await api.request('/test-input');
       }
@@ -448,9 +483,11 @@ class _DashboardState extends State<Dashboard> {
     setState(() => action = true);
     try {
       // Let an existing upload finish; pause new polls while this route owns the log.
-      while (busy && mounted) {
+      while ((busy || uploading) && mounted) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
+      buffered.stop();
+      await buffered.idle;
       if (!mounted) return;
       final wifi = await Navigator.push<bool>(context,
           MaterialPageRoute(builder: (_) => DeviceConnections(api: api)));
@@ -495,6 +532,8 @@ class _DashboardState extends State<Dashboard> {
       historyQuery = '';
       notice = '';
       captureSummary = '';
+      receiveProblem = null;
+      uploadProblem = null;
     });
     refresh();
   }
@@ -524,6 +563,9 @@ class _DashboardState extends State<Dashboard> {
   void dispose() {
     // Timers, sockets, and controllers otherwise outlive a removed route in tests.
     timer?.cancel();
+    captureTimer?.cancel();
+    uploadTimer?.cancel();
+    buffered.stop();
     if (widget.api == null) api.close();
     address.dispose();
     username.dispose();
@@ -789,7 +831,7 @@ class _DashboardState extends State<Dashboard> {
               DemoSection(
                   title: '3. Capture readings',
                   subtitle: deviceMode
-                      ? 'Buffered capture saves received frames in batches. The screen refreshes once per second; buffer losses are reported below.'
+                      ? 'Capture receives and saves batches independently of uploads. The screen refreshes once per second; any buffer losses are reported below.'
                       : 'Publish a new manual frame after starting capture.',
                   children: [
                     ElevatedButton.icon(

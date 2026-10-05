@@ -1,7 +1,7 @@
 import dgram from 'node:dgram';
 import { isIP } from 'node:net';
 
-export async function startDeviceListener(app, { port = 5005, sourceIp, host = '0.0.0.0' } = {}) {
+export async function startDeviceListener(app, { port = 5005, sourceIp, host = '0.0.0.0', receiveBufferBytes = 4 * 1024 * 1024 } = {}) {
   if (sourceIp && isIP(sourceIp) !== 4) {
     throw new Error('DEVICE_IP must be the ESP32 IPv4 address');
   }
@@ -19,6 +19,8 @@ export async function startDeviceListener(app, { port = 5005, sourceIp, host = '
       socket.once('error', reject);
       socket.bind(port, host, resolve);
     });
+    // Absorb scheduling/GC pauses before the receiver's application ring.
+    socket.setRecvBufferSize(receiveBufferBytes);
   } catch (error) {
     socket.close();
     throw error;

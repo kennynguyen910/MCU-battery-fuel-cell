@@ -5,6 +5,22 @@ import { MemoryStore } from '../src/memory-store.js';
 import { DeviceReceiver, MAX_BUFFERED_FRAMES } from '../src/device-receiver.js';
 import { encodeBatch } from '../src/network-simulator.js';
 
+test('ring paging preserves chronology through repeated non-batch-aligned wraps', () => {
+  const receiver = new DeviceReceiver({capacity:37, now:() => 100000});
+  for (let i=0;i<1000;i++) receiver.ingest(encodeBatch(i*10,i),'127.0.0.1');
+  const first = receiver.page('127.0.0.1',0,undefined,13);
+  assert.equal(first.missedFrames,9963);
+  let cursor=first.nextCursor;
+  const frames=[...first.frames];
+  while (cursor<10000) {
+    const page=receiver.page('127.0.0.1',cursor,first.streamId,13);
+    assert.equal(page.missedFrames,0); frames.push(...page.frames); cursor=page.nextCursor;
+  }
+  assert.deepEqual(frames.map(f=>f.sequence),Array.from({length:37},(_,i)=>9963+i));
+  assert.equal(receiver.get('127.0.0.1').bufferedFrames,37);
+  assert.equal(receiver.get('127.0.0.1').bufferCapacity,37);
+});
+
 test('arrival paging never skips a full page and gives every batched frame a unique timestamp', () => {
   const receiver = new DeviceReceiver({now: () => 100000});
   for(let i=0;i<250;i++) receiver.ingest(encodeBatch(i*10,i),'127.0.0.1');

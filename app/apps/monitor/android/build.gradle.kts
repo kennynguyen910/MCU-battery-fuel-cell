@@ -2,6 +2,11 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // The unchanged USB driver 6.1.0 is published on JitPack.
+        maven {
+            url = uri("https://jitpack.io")
+            content { includeGroup("com.github.felHR85") }
+        }
     }
 }
 

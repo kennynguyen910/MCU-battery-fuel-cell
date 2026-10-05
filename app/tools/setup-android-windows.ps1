@@ -90,6 +90,7 @@ $packages = @(
   'platform-tools',
   'emulator',
   'platforms;android-36',
+  'platforms;android-37.0', # Required by the current BLE/permission plugins.
   'build-tools;36.0.0',
   'system-images;android-36;google_apis;x86_64',
   'cmake;3.22.1',

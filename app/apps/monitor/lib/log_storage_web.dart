@@ -1,6 +1,13 @@
-// Browser preview implementation. localStorage gives the demo restart behavior
-// without pretending that a browser has the native app's documents directory.
-import 'package:web/web.dart' as web;
+// Browser capture uses an IndexedDB journal, including legacy log migration.
+
+import 'dart:convert';
+import 'browser_capture_journal.dart';
+
+const journalSupported = true;
+final _journal = BrowserCaptureJournal('$key-v2', legacyKey: key);
+Future<void> appendLogOperation(
+        Map<String, dynamic> operation, List<Map<String, dynamic>> snapshot) =>
+    _journal.append(operation, snapshot);
 
 // Version the key so a future incompatible log format can migrate explicitly.
 String get key {
@@ -14,6 +21,8 @@ String get key {
   return 'capstone-capture-log-v1';
 }
 
-Future<String?> readLog() async => web.window.localStorage.getItem(key);
-Future<void> writeLog(String data) async =>
-    web.window.localStorage.setItem(key, data);
+Future<String?> readLog() => _journal.read();
+Future<void> writeLog(String data) =>
+    _journal.replace((jsonDecode(data) as List)
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList());

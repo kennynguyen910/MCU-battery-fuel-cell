@@ -79,7 +79,12 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
   Future<void> _tick() async {
     if (!_ready || _leaving) return;
     try {
-      await _capture.drain();
+      await _capture.drain(upload: false);
+      if (_leaving) return;
+      unawaited(_capture.uploadPending().catchError((Object error) {
+        if (error is ApiException && error.statusCode == 401) _capture.stop();
+        _show('Saved uploads pending: $error');
+      }));
     } catch (error) {
       if (error is ApiException && error.statusCode == 401) {
         _capture.stop();
@@ -313,6 +318,11 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
       while (_capture.queued > 0) {
         await _capture.drain(upload: false);
       }
+      // The parent owns a new log instance. Finish any acknowledgement commit
+      // before handing the same journal back to it; outages leave durable data.
+      try {
+        await _capture.uploadsIdle;
+      } catch (_) {/* Retry on the parent. */}
       if (!mounted) return;
       setState(() => _allowPop = true);
       Navigator.pop(context, wifi);

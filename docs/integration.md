@@ -136,6 +136,12 @@ never consume the UDP queue. This is independent of the required BLE provisionin
 
 ## Repeatable verification
 
+Measurement throughput is now tested separately through real UDP, the Dart
+collector's durable journal, HTTP and PostgreSQL. See
+[1kSPS capture acceptance](../app/docs/1ksps-capture.md) for sustained-load
+results and the commands. This host evidence does not replace the physical
+phone/ESP32 timing gate below.
+
 After app dependencies are installed and Flutter package resolution completes:
 
 ```powershell

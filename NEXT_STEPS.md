@@ -8,6 +8,12 @@
 
 ## At a glance
 
+**Measurement performance update (October 5):** Native host tests now preserve
+60,000 complete frames at 1kSPS, including upload outage and journal recovery.
+See the [1kSPS capture guide](app/docs/1ksps-capture.md) for results, reproduction,
+and the physical phone/ESP32 gate. The linked September PDF remains a dated
+provisioning roadmap.
+
 | State | What it means |
 | --- | --- |
 | READY IN HOST TESTS | Measurement formats match; 15 shared Python/Node/Flutter tests pass. |
