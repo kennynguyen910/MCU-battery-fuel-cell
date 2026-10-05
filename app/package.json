@@ -1,0 +1,9 @@
+{
+  "name": "capstone",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node apps/api/src/server.js",
+    "test": "node --test apps/api/test/*.test.js"
+  }
+}
