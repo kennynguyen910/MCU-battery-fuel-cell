@@ -1,0 +1,1869 @@
+{
+  "date": "2026-10-05",
+  "productionRevision": "1af04da23912310f633701a4a37881e8515d1a2f",
+  "productionChanges": "None; only test instrumentation and documentation changed",
+  "sampleDefinition": "One complete 16-channel frame; each channel has the same samples/second rate",
+  "machine": {
+    "cpu": "Intel Core i9-13900H",
+    "logicalProcessors": 20,
+    "usableRamBytes": 34014814208,
+    "os": "Windows",
+    "node": "24.14.1",
+    "postgres": "17.11",
+    "flutter": "3.47.4",
+    "dart": "3.13.3"
+  },
+  "conditions": {
+    "network": "UDP/HTTP loopback",
+    "database": "real local PostgreSQL",
+    "liveHistoryHttpPolling": true,
+    "captureUIRendering": "not benchmarked",
+    "collectors": [
+      "native Dart VM/file journal",
+      "compiled Chrome/strict IndexedDB"
+    ],
+    "maxPendingFrames": 60000,
+    "uploadConcurrency": 4,
+    "framesPerRequest": 1000,
+    "singlePerformanceTestAtATime": true,
+    "finalDrainLimitSeconds": 10,
+    "passingConfirmationSeconds": 180
+  },
+  "combinedVerifiedLimits": {
+    "normal": {
+      "highestVerifiedFps": 6000,
+      "lowestFailingNativeFps": 7000,
+      "resolutionFps": 1000,
+      "channelReadingsPerSecond": 96000
+    },
+    "delayedUploadsAndOutage": {
+      "highestVerifiedFps": 3000,
+      "lowestFailingNativeFps": 3500,
+      "resolutionFps": 500,
+      "uploadDelayMs": 750,
+      "outageSeconds": 10,
+      "lostCommitResponseRetries": 1,
+      "journalReloadDuringOutage": true,
+      "channelReadingsPerSecond": 48000
+    }
+  },
+  "browserUpperBoundary": "Validated at the native passing rates; rates above those were not searched in Chrome",
+  "firmware": {
+    "configuredFramesPerSecond": 1000,
+    "timerPeriodUs": 1000,
+    "physicalMaximum": "not measured; no attached ESP32/phone"
+  },
+  "interpretation": "These are measured operating brackets on this PC, not mathematical maximums or indefinite/physical reliability guarantees. Short 8000-FPS pass was followed by an overflowing 8000-FPS run; use the long-run confirmation rates.",
+  "observedFailure": "Local pending buffer cannot accept another atomic page; uploader throughput falls behind acquisition. Failure traces report no receiver sequence gaps/invalid frames before abort, but failed runs are not lossless acceptance.",
+  "runs": [
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 4000,
+      "frames": 240000,
+      "faults": true,
+      "uploadDelayMs": 750,
+      "viewerRequests": 49,
+      "maxViewerMs": 218,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 31365,
+        "saved": 123010,
+        "pending": 55980,
+        "maxPending": 59980,
+        "missed": 0,
+        "outages": 6,
+        "restartRecovered": true,
+        "samples": [
+          {
+            "elapsedMs": 5063,
+            "saved": 20040,
+            "pending": 10980,
+            "received": 20280
+          },
+          {
+            "elapsedMs": 10071,
+            "saved": 38020,
+            "pending": 24970,
+            "received": 40280
+          },
+          {
+            "elapsedMs": 15121,
+            "saved": 60030,
+            "pending": 46980,
+            "received": 60530
+          },
+          {
+            "elapsedMs": 20358,
+            "saved": 81120,
+            "pending": 55070,
+            "received": 81490
+          },
+          {
+            "elapsedMs": 25549,
+            "saved": 101080,
+            "pending": 54030,
+            "received": 102210
+          },
+          {
+            "elapsedMs": 30834,
+            "saved": 123010,
+            "pending": 59980,
+            "received": 123380
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 180550,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-4k-native-faults.txt",
+      "plannedSeconds": 60.0,
+      "profile": "delayed uploads + outage"
+    },
+    {
+      "passed": true,
+      "runtime": "dart-vm",
+      "fps": 8000,
+      "frames": 480000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 61,
+      "maxViewerMs": 1210,
+      "producer": {
+        "generated": 480000,
+        "sent": 480000,
+        "sendErrors": 0,
+        "elapsedMs": 60004.0067
+      },
+      "collector": {
+        "elapsedMs": 62931,
+        "saved": 480000,
+        "pending": 0,
+        "maxPending": 24010,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5121,
+            "saved": 40730,
+            "pending": 10620,
+            "received": 40980
+          },
+          {
+            "elapsedMs": 10158,
+            "saved": 80580,
+            "pending": 14390,
+            "received": 81340
+          },
+          {
+            "elapsedMs": 15198,
+            "saved": 120850,
+            "pending": 14580,
+            "received": 121600
+          },
+          {
+            "elapsedMs": 20241,
+            "saved": 160200,
+            "pending": 16470,
+            "received": 161930
+          },
+          {
+            "elapsedMs": 25295,
+            "saved": 202190,
+            "pending": 18060,
+            "received": 202440
+          },
+          {
+            "elapsedMs": 30353,
+            "saved": 242160,
+            "pending": 19680,
+            "received": 242920
+          },
+          {
+            "elapsedMs": 35418,
+            "saved": 282220,
+            "pending": 15990,
+            "received": 283340
+          },
+          {
+            "elapsedMs": 40474,
+            "saved": 322250,
+            "pending": 18950,
+            "received": 323880
+          },
+          {
+            "elapsedMs": 45622,
+            "saved": 364530,
+            "pending": 19990,
+            "received": 365020
+          },
+          {
+            "elapsedMs": 50664,
+            "saved": 405040,
+            "pending": 18870,
+            "received": 405410
+          },
+          {
+            "elapsedMs": 55689,
+            "saved": 444590,
+            "pending": 16290,
+            "received": 445610
+          },
+          {
+            "elapsedMs": 60721,
+            "saved": 480000,
+            "pending": 13030,
+            "received": 480000
+          }
+        ],
+        "drainMs": 2712
+      },
+      "rows": 7680000,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "everyTimestampVerified": true,
+      "allVoltagesVerified": true,
+      "evidenceFile": "capacity-8k-native-steady.txt",
+      "plannedSeconds": 60.0,
+      "profile": "normal operation",
+      "measuredWireFps": 7999.465809005718
+    },
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 16000,
+      "frames": 960000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 18,
+      "maxViewerMs": 261,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 9326,
+        "saved": 123340,
+        "pending": 56480,
+        "maxPending": 55480,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5102,
+            "saved": 77340,
+            "pending": 39970,
+            "received": 81850
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 231240,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-16k-native-steady.txt",
+      "plannedSeconds": 60.0,
+      "profile": "normal operation"
+    },
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 12000,
+      "frames": 720000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 23,
+      "maxViewerMs": 373,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 18984,
+        "saved": 201430,
+        "pending": 59560,
+        "maxPending": 56470,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5117,
+            "saved": 60470,
+            "pending": 26220,
+            "received": 61580
+          },
+          {
+            "elapsedMs": 10344,
+            "saved": 122010,
+            "pending": 40290,
+            "received": 124380
+          },
+          {
+            "elapsedMs": 15556,
+            "saved": 172430,
+            "pending": 55470,
+            "received": 186920
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 229500,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-12000-60-steady-dart-vm.txt",
+      "exitCode": 1,
+      "plannedSeconds": 60.0,
+      "profile": "normal operation"
+    },
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 10000,
+      "frames": 600000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 25,
+      "maxViewerMs": 364,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 16661,
+        "saved": 162280,
+        "pending": 58070,
+        "maxPending": 57240,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5124,
+            "saved": 49680,
+            "pending": 18680,
+            "received": 51290
+          },
+          {
+            "elapsedMs": 10270,
+            "saved": 100650,
+            "pending": 43430,
+            "received": 102830
+          },
+          {
+            "elapsedMs": 15467,
+            "saved": 154010,
+            "pending": 56800,
+            "received": 154810
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 214620,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-10000-60-steady-dart-vm.txt",
+      "exitCode": 1,
+      "plannedSeconds": 60.0,
+      "profile": "normal operation"
+    },
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 9000,
+      "frames": 540000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 25,
+      "maxViewerMs": 343,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 18719,
+        "saved": 162030,
+        "pending": 56760,
+        "maxPending": 57760,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5110,
+            "saved": 44150,
+            "pending": 19070,
+            "received": 46120
+          },
+          {
+            "elapsedMs": 10253,
+            "saved": 90560,
+            "pending": 39160,
+            "received": 92270
+          },
+          {
+            "elapsedMs": 15870,
+            "saved": 139570,
+            "pending": 51300,
+            "received": 142790
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 189440,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-9000-60-steady-dart-vm.txt",
+      "exitCode": 1,
+      "plannedSeconds": 60.0,
+      "profile": "normal operation"
+    },
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 8000,
+      "frames": 1440000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 42,
+      "maxViewerMs": 683,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 32626,
+        "saved": 257290,
+        "pending": 55420,
+        "maxPending": 58420,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5101,
+            "saved": 40730,
+            "pending": 18340,
+            "received": 40980
+          },
+          {
+            "elapsedMs": 10224,
+            "saved": 80820,
+            "pending": 25490,
+            "received": 81940
+          },
+          {
+            "elapsedMs": 15291,
+            "saved": 121290,
+            "pending": 32970,
+            "received": 122530
+          },
+          {
+            "elapsedMs": 20423,
+            "saved": 160290,
+            "pending": 35760,
+            "received": 163570
+          },
+          {
+            "elapsedMs": 25525,
+            "saved": 202370,
+            "pending": 46980,
+            "received": 204340
+          },
+          {
+            "elapsedMs": 31065,
+            "saved": 244900,
+            "pending": 48510,
+            "received": 248650
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 307710,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-8000-180-steady-dart-vm.txt",
+      "exitCode": 1,
+      "plannedSeconds": 180.0,
+      "profile": "normal operation"
+    },
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 7000,
+      "frames": 1260000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 98,
+      "maxViewerMs": 2270,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 131109,
+        "saved": 912260,
+        "pending": 59870,
+        "maxPending": 59810,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5121,
+            "saved": 35410,
+            "pending": 8990,
+            "received": 35860
+          },
+          {
+            "elapsedMs": 10165,
+            "saved": 70440,
+            "pending": 19440,
+            "received": 71210
+          },
+          {
+            "elapsedMs": 15218,
+            "saved": 105070,
+            "pending": 19590,
+            "received": 106590
+          },
+          {
+            "elapsedMs": 20311,
+            "saved": 141940,
+            "pending": 24030,
+            "received": 142260
+          },
+          {
+            "elapsedMs": 25362,
+            "saved": 175220,
+            "pending": 18780,
+            "received": 177510
+          },
+          {
+            "elapsedMs": 30410,
+            "saved": 211980,
+            "pending": 22500,
+            "received": 212950
+          },
+          {
+            "elapsedMs": 35446,
+            "saved": 246940,
+            "pending": 24490,
+            "received": 248140
+          },
+          {
+            "elapsedMs": 40569,
+            "saved": 283120,
+            "pending": 29650,
+            "received": 284070
+          },
+          {
+            "elapsedMs": 45611,
+            "saved": 318870,
+            "pending": 31510,
+            "received": 319310
+          },
+          {
+            "elapsedMs": 50986,
+            "saved": 355280,
+            "pending": 28890,
+            "received": 356920
+          },
+          {
+            "elapsedMs": 56085,
+            "saved": 392180,
+            "pending": 33170,
+            "received": 392620
+          },
+          {
+            "elapsedMs": 61191,
+            "saved": 427110,
+            "pending": 30920,
+            "received": 428420
+          },
+          {
+            "elapsedMs": 66231,
+            "saved": 462250,
+            "pending": 30580,
+            "received": 463670
+          },
+          {
+            "elapsedMs": 71314,
+            "saved": 498990,
+            "pending": 32070,
+            "received": 499210
+          },
+          {
+            "elapsedMs": 76568,
+            "saved": 534030,
+            "pending": 28130,
+            "received": 535960
+          },
+          {
+            "elapsedMs": 81785,
+            "saved": 572300,
+            "pending": 34400,
+            "received": 572520
+          },
+          {
+            "elapsedMs": 86863,
+            "saved": 607880,
+            "pending": 34520,
+            "received": 608100
+          },
+          {
+            "elapsedMs": 91937,
+            "saved": 642450,
+            "pending": 36610,
+            "received": 643620
+          },
+          {
+            "elapsedMs": 97043,
+            "saved": 678430,
+            "pending": 40430,
+            "received": 679290
+          },
+          {
+            "elapsedMs": 102186,
+            "saved": 714240,
+            "pending": 45280,
+            "received": 715350
+          },
+          {
+            "elapsedMs": 107364,
+            "saved": 748510,
+            "pending": 44550,
+            "received": 751560
+          },
+          {
+            "elapsedMs": 112555,
+            "saved": 784250,
+            "pending": 42610,
+            "received": 787880
+          },
+          {
+            "elapsedMs": 117599,
+            "saved": 819130,
+            "pending": 53840,
+            "received": 823280
+          },
+          {
+            "elapsedMs": 122915,
+            "saved": 860060,
+            "pending": 55610,
+            "received": 860350
+          },
+          {
+            "elapsedMs": 128165,
+            "saved": 892260,
+            "pending": 55810,
+            "received": 897190
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 966410,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-7000-180-steady-dart-vm.txt",
+      "exitCode": 1,
+      "plannedSeconds": 180.0,
+      "profile": "normal operation"
+    },
+    {
+      "passed": true,
+      "runtime": "dart-vm",
+      "fps": 6000,
+      "frames": 1080000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 125,
+      "maxViewerMs": 2634,
+      "producer": {
+        "generated": 1080000,
+        "sent": 1080000,
+        "sendErrors": 0,
+        "elapsedMs": 180012.06279999999
+      },
+      "collector": {
+        "elapsedMs": 183260,
+        "saved": 1080000,
+        "pending": 0,
+        "maxPending": 20790,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5100,
+            "saved": 30280,
+            "pending": 4140,
+            "received": 30750
+          },
+          {
+            "elapsedMs": 10126,
+            "saved": 60310,
+            "pending": 4560,
+            "received": 60880
+          },
+          {
+            "elapsedMs": 15158,
+            "saved": 90340,
+            "pending": 4580,
+            "received": 91090
+          },
+          {
+            "elapsedMs": 20183,
+            "saved": 120310,
+            "pending": 4500,
+            "received": 121250
+          },
+          {
+            "elapsedMs": 25213,
+            "saved": 150630,
+            "pending": 5850,
+            "received": 151380
+          },
+          {
+            "elapsedMs": 30248,
+            "saved": 180910,
+            "pending": 7170,
+            "received": 181570
+          },
+          {
+            "elapsedMs": 35334,
+            "saved": 211610,
+            "pending": 5700,
+            "received": 212170
+          },
+          {
+            "elapsedMs": 40368,
+            "saved": 241810,
+            "pending": 6000,
+            "received": 242380
+          },
+          {
+            "elapsedMs": 45393,
+            "saved": 271690,
+            "pending": 5890,
+            "received": 272540
+          },
+          {
+            "elapsedMs": 50419,
+            "saved": 301750,
+            "pending": 6010,
+            "received": 302680
+          },
+          {
+            "elapsedMs": 55447,
+            "saved": 331950,
+            "pending": 6110,
+            "received": 332800
+          },
+          {
+            "elapsedMs": 60474,
+            "saved": 361790,
+            "pending": 5860,
+            "received": 363010
+          },
+          {
+            "elapsedMs": 65570,
+            "saved": 393360,
+            "pending": 7530,
+            "received": 393550
+          },
+          {
+            "elapsedMs": 70612,
+            "saved": 423380,
+            "pending": 7770,
+            "received": 423850
+          },
+          {
+            "elapsedMs": 75639,
+            "saved": 453340,
+            "pending": 7610,
+            "received": 453990
+          },
+          {
+            "elapsedMs": 80665,
+            "saved": 483410,
+            "pending": 7300,
+            "received": 484150
+          },
+          {
+            "elapsedMs": 85691,
+            "saved": 513330,
+            "pending": 7650,
+            "received": 514290
+          },
+          {
+            "elapsedMs": 90722,
+            "saved": 543420,
+            "pending": 7820,
+            "received": 544430
+          },
+          {
+            "elapsedMs": 95745,
+            "saved": 573310,
+            "pending": 7380,
+            "received": 574630
+          },
+          {
+            "elapsedMs": 100839,
+            "saved": 604770,
+            "pending": 9060,
+            "received": 605150
+          },
+          {
+            "elapsedMs": 105864,
+            "saved": 634810,
+            "pending": 9020,
+            "received": 635280
+          },
+          {
+            "elapsedMs": 110891,
+            "saved": 664700,
+            "pending": 8740,
+            "received": 665460
+          },
+          {
+            "elapsedMs": 115927,
+            "saved": 694750,
+            "pending": 8910,
+            "received": 695680
+          },
+          {
+            "elapsedMs": 120966,
+            "saved": 724710,
+            "pending": 9070,
+            "received": 725930
+          },
+          {
+            "elapsedMs": 126028,
+            "saved": 755770,
+            "pending": 8070,
+            "received": 756250
+          },
+          {
+            "elapsedMs": 131100,
+            "saved": 786120,
+            "pending": 6270,
+            "received": 786720
+          },
+          {
+            "elapsedMs": 136133,
+            "saved": 816360,
+            "pending": 6530,
+            "received": 816930
+          },
+          {
+            "elapsedMs": 141157,
+            "saved": 846340,
+            "pending": 6590,
+            "received": 847080
+          },
+          {
+            "elapsedMs": 146182,
+            "saved": 876730,
+            "pending": 6960,
+            "received": 877210
+          },
+          {
+            "elapsedMs": 151210,
+            "saved": 906770,
+            "pending": 6980,
+            "received": 907430
+          },
+          {
+            "elapsedMs": 156245,
+            "saved": 936260,
+            "pending": 6480,
+            "received": 937560
+          },
+          {
+            "elapsedMs": 161286,
+            "saved": 966230,
+            "pending": 14480,
+            "received": 967830
+          },
+          {
+            "elapsedMs": 166329,
+            "saved": 997740,
+            "pending": 11690,
+            "received": 998120
+          },
+          {
+            "elapsedMs": 171381,
+            "saved": 1027750,
+            "pending": 17780,
+            "received": 1028410
+          },
+          {
+            "elapsedMs": 176407,
+            "saved": 1057720,
+            "pending": 13910,
+            "received": 1058540
+          },
+          {
+            "elapsedMs": 181482,
+            "saved": 1080000,
+            "pending": 7220,
+            "received": 1080000
+          }
+        ],
+        "drainMs": 2785
+      },
+      "rows": 17280000,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "everyTimestampVerified": true,
+      "allVoltagesVerified": true,
+      "evidenceFile": "capacity-6000-180-steady-dart-vm.txt",
+      "exitCode": 0,
+      "plannedSeconds": 180.0,
+      "profile": "normal operation",
+      "measuredWireFps": 5999.59793361137
+    },
+    {
+      "passed": true,
+      "runtime": "dart-vm",
+      "fps": 3000,
+      "frames": 540000,
+      "faults": true,
+      "uploadDelayMs": 750,
+      "viewerRequests": 175,
+      "maxViewerMs": 1161,
+      "producer": {
+        "generated": 540000,
+        "sent": 540000,
+        "sendErrors": 0,
+        "elapsedMs": 180004.6725
+      },
+      "collector": {
+        "elapsedMs": 186330,
+        "saved": 540000,
+        "pending": 0,
+        "maxPending": 42000,
+        "missed": 0,
+        "outages": 6,
+        "restartRecovered": true,
+        "samples": [
+          {
+            "elapsedMs": 5060,
+            "saved": 15030,
+            "pending": 7260,
+            "received": 15220
+          },
+          {
+            "elapsedMs": 10439,
+            "saved": 30770,
+            "pending": 22480,
+            "received": 31340
+          },
+          {
+            "elapsedMs": 15489,
+            "saved": 45760,
+            "pending": 37470,
+            "received": 46460
+          },
+          {
+            "elapsedMs": 20562,
+            "saved": 61540,
+            "pending": 37250,
+            "received": 61730
+          },
+          {
+            "elapsedMs": 25811,
+            "saved": 77290,
+            "pending": 34000,
+            "received": 77430
+          },
+          {
+            "elapsedMs": 30899,
+            "saved": 92300,
+            "pending": 33540,
+            "received": 92720
+          },
+          {
+            "elapsedMs": 35936,
+            "saved": 107280,
+            "pending": 28480,
+            "received": 107840
+          },
+          {
+            "elapsedMs": 40970,
+            "saved": 122270,
+            "pending": 27470,
+            "received": 122930
+          },
+          {
+            "elapsedMs": 46006,
+            "saved": 137270,
+            "pending": 25990,
+            "received": 138010
+          },
+          {
+            "elapsedMs": 51053,
+            "saved": 153040,
+            "pending": 23760,
+            "received": 153180
+          },
+          {
+            "elapsedMs": 56087,
+            "saved": 168010,
+            "pending": 23240,
+            "received": 168290
+          },
+          {
+            "elapsedMs": 61122,
+            "saved": 183030,
+            "pending": 23750,
+            "received": 183360
+          },
+          {
+            "elapsedMs": 66157,
+            "saved": 198040,
+            "pending": 21760,
+            "received": 198510
+          },
+          {
+            "elapsedMs": 71212,
+            "saved": 213040,
+            "pending": 18250,
+            "received": 213650
+          },
+          {
+            "elapsedMs": 76244,
+            "saved": 228040,
+            "pending": 18250,
+            "received": 228740
+          },
+          {
+            "elapsedMs": 81303,
+            "saved": 243760,
+            "pending": 18980,
+            "received": 243910
+          },
+          {
+            "elapsedMs": 86348,
+            "saved": 258790,
+            "pending": 19010,
+            "received": 259080
+          },
+          {
+            "elapsedMs": 91390,
+            "saved": 273760,
+            "pending": 18960,
+            "received": 274180
+          },
+          {
+            "elapsedMs": 96430,
+            "saved": 288790,
+            "pending": 18480,
+            "received": 289300
+          },
+          {
+            "elapsedMs": 101476,
+            "saved": 303780,
+            "pending": 16980,
+            "received": 304440
+          },
+          {
+            "elapsedMs": 106534,
+            "saved": 319520,
+            "pending": 20230,
+            "received": 319620
+          },
+          {
+            "elapsedMs": 111573,
+            "saved": 334550,
+            "pending": 18760,
+            "received": 334730
+          },
+          {
+            "elapsedMs": 116602,
+            "saved": 349580,
+            "pending": 17320,
+            "received": 349820
+          },
+          {
+            "elapsedMs": 121628,
+            "saved": 364520,
+            "pending": 16260,
+            "received": 364900
+          },
+          {
+            "elapsedMs": 126657,
+            "saved": 379510,
+            "pending": 16720,
+            "received": 379980
+          },
+          {
+            "elapsedMs": 131684,
+            "saved": 394520,
+            "pending": 17240,
+            "received": 395080
+          },
+          {
+            "elapsedMs": 136713,
+            "saved": 409530,
+            "pending": 18770,
+            "received": 410170
+          },
+          {
+            "elapsedMs": 141757,
+            "saved": 424540,
+            "pending": 17260,
+            "received": 425290
+          },
+          {
+            "elapsedMs": 146789,
+            "saved": 440290,
+            "pending": 17520,
+            "received": 440380
+          },
+          {
+            "elapsedMs": 151831,
+            "saved": 455300,
+            "pending": 20010,
+            "received": 455530
+          },
+          {
+            "elapsedMs": 156916,
+            "saved": 470290,
+            "pending": 22510,
+            "received": 470760
+          },
+          {
+            "elapsedMs": 161944,
+            "saved": 485290,
+            "pending": 19540,
+            "received": 485850
+          },
+          {
+            "elapsedMs": 166991,
+            "saved": 500260,
+            "pending": 17460,
+            "received": 501010
+          },
+          {
+            "elapsedMs": 172039,
+            "saved": 516030,
+            "pending": 19230,
+            "received": 516120
+          },
+          {
+            "elapsedMs": 177074,
+            "saved": 531030,
+            "pending": 20230,
+            "received": 531270
+          },
+          {
+            "elapsedMs": 182159,
+            "saved": 540000,
+            "pending": 12230,
+            "received": 540000
+          }
+        ],
+        "drainMs": 6186
+      },
+      "rows": 8640000,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "everyTimestampVerified": true,
+      "allVoltagesVerified": true,
+      "evidenceFile": "capacity-3000-180-faults-dart-vm.txt",
+      "exitCode": 0,
+      "plannedSeconds": 180.0,
+      "profile": "delayed uploads + outage",
+      "measuredWireFps": 2999.922127021453
+    },
+    {
+      "passed": false,
+      "runtime": "dart-vm",
+      "fps": 3500,
+      "frames": 630000,
+      "faults": true,
+      "uploadDelayMs": 750,
+      "viewerRequests": 154,
+      "maxViewerMs": 1095,
+      "producer": null,
+      "collector": {
+        "elapsedMs": 144876,
+        "saved": 504970,
+        "pending": 59410,
+        "maxPending": 59410,
+        "missed": 0,
+        "outages": 6,
+        "restartRecovered": true,
+        "samples": [
+          {
+            "elapsedMs": 5054,
+            "saved": 17570,
+            "pending": 9110,
+            "received": 17730
+          },
+          {
+            "elapsedMs": 10475,
+            "saved": 35960,
+            "pending": 24510,
+            "received": 36720
+          },
+          {
+            "elapsedMs": 15537,
+            "saved": 54340,
+            "pending": 42890,
+            "received": 54450
+          },
+          {
+            "elapsedMs": 20793,
+            "saved": 72700,
+            "pending": 48250,
+            "received": 72860
+          },
+          {
+            "elapsedMs": 25896,
+            "saved": 90220,
+            "pending": 45770,
+            "received": 90710
+          },
+          {
+            "elapsedMs": 30982,
+            "saved": 107690,
+            "pending": 48490,
+            "received": 108460
+          },
+          {
+            "elapsedMs": 36059,
+            "saved": 126130,
+            "pending": 47930,
+            "received": 126290
+          },
+          {
+            "elapsedMs": 41324,
+            "saved": 144440,
+            "pending": 47240,
+            "received": 144720
+          },
+          {
+            "elapsedMs": 46395,
+            "saved": 161970,
+            "pending": 48250,
+            "received": 162460
+          },
+          {
+            "elapsedMs": 51479,
+            "saved": 178570,
+            "pending": 44850,
+            "received": 180270
+          },
+          {
+            "elapsedMs": 56544,
+            "saved": 197820,
+            "pending": 48500,
+            "received": 197990
+          },
+          {
+            "elapsedMs": 61629,
+            "saved": 215410,
+            "pending": 48090,
+            "received": 215730
+          },
+          {
+            "elapsedMs": 66664,
+            "saved": 232850,
+            "pending": 47530,
+            "received": 233390
+          },
+          {
+            "elapsedMs": 71823,
+            "saved": 251190,
+            "pending": 51500,
+            "received": 251460
+          },
+          {
+            "elapsedMs": 77067,
+            "saved": 269550,
+            "pending": 49860,
+            "received": 269830
+          },
+          {
+            "elapsedMs": 82141,
+            "saved": 286180,
+            "pending": 47490,
+            "received": 287550
+          },
+          {
+            "elapsedMs": 87327,
+            "saved": 305430,
+            "pending": 51470,
+            "received": 305710
+          },
+          {
+            "elapsedMs": 92601,
+            "saved": 323850,
+            "pending": 50890,
+            "received": 324180
+          },
+          {
+            "elapsedMs": 97910,
+            "saved": 342190,
+            "pending": 54150,
+            "received": 342750
+          },
+          {
+            "elapsedMs": 103334,
+            "saved": 361440,
+            "pending": 53400,
+            "received": 361720
+          },
+          {
+            "elapsedMs": 108411,
+            "saved": 378930,
+            "pending": 50890,
+            "received": 379530
+          },
+          {
+            "elapsedMs": 113607,
+            "saved": 397290,
+            "pending": 54590,
+            "received": 397670
+          },
+          {
+            "elapsedMs": 119102,
+            "saved": 416560,
+            "pending": 55860,
+            "received": 416940
+          },
+          {
+            "elapsedMs": 124360,
+            "saved": 433230,
+            "pending": 54530,
+            "received": 435350
+          },
+          {
+            "elapsedMs": 129604,
+            "saved": 453350,
+            "pending": 58160,
+            "received": 453670
+          },
+          {
+            "elapsedMs": 134858,
+            "saved": 471680,
+            "pending": 57490,
+            "received": 472060
+          },
+          {
+            "elapsedMs": 139897,
+            "saved": 489220,
+            "pending": 58030,
+            "received": 489710
+          }
+        ],
+        "failure": "Bad state: Local pending buffer is full. Restore uploads before continuing."
+      },
+      "received": 559690,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "error": "Dart acceptance test exited 1",
+      "evidenceFile": "capacity-3500-180-faults-dart-vm.txt",
+      "exitCode": 1,
+      "plannedSeconds": 180.0,
+      "profile": "delayed uploads + outage"
+    },
+    {
+      "passed": true,
+      "runtime": "chrome",
+      "fps": 6000,
+      "frames": 1080000,
+      "faults": false,
+      "uploadDelayMs": 0,
+      "viewerRequests": 130,
+      "maxViewerMs": 2602,
+      "producer": {
+        "generated": 1080000,
+        "sent": 1080000,
+        "sendErrors": 0,
+        "elapsedMs": 180001.7321
+      },
+      "collector": {
+        "elapsedMs": 183322,
+        "saved": 1080000,
+        "pending": 0,
+        "maxPending": 20830,
+        "missed": 0,
+        "outages": 0,
+        "restartRecovered": false,
+        "samples": [
+          {
+            "elapsedMs": 5166,
+            "saved": 30240,
+            "pending": 4560,
+            "received": 31080
+          },
+          {
+            "elapsedMs": 10280,
+            "saved": 60250,
+            "pending": 4490,
+            "received": 61730
+          },
+          {
+            "elapsedMs": 15359,
+            "saved": 91680,
+            "pending": 5990,
+            "received": 92240
+          },
+          {
+            "elapsedMs": 20455,
+            "saved": 121690,
+            "pending": 3090,
+            "received": 122810
+          },
+          {
+            "elapsedMs": 25573,
+            "saved": 153240,
+            "pending": 4490,
+            "received": 153430
+          },
+          {
+            "elapsedMs": 30706,
+            "saved": 183200,
+            "pending": 4520,
+            "received": 184320
+          },
+          {
+            "elapsedMs": 35812,
+            "saved": 214670,
+            "pending": 5990,
+            "received": 214950
+          },
+          {
+            "elapsedMs": 40888,
+            "saved": 244750,
+            "pending": 3990,
+            "received": 245400
+          },
+          {
+            "elapsedMs": 45962,
+            "saved": 274670,
+            "pending": 2960,
+            "received": 275850
+          },
+          {
+            "elapsedMs": 51086,
+            "saved": 306240,
+            "pending": 4480,
+            "received": 306600
+          },
+          {
+            "elapsedMs": 56213,
+            "saved": 336230,
+            "pending": 4530,
+            "received": 337360
+          },
+          {
+            "elapsedMs": 61346,
+            "saved": 367690,
+            "pending": 5990,
+            "received": 368160
+          },
+          {
+            "elapsedMs": 66424,
+            "saved": 397700,
+            "pending": 2980,
+            "received": 398540
+          },
+          {
+            "elapsedMs": 71528,
+            "saved": 428710,
+            "pending": 4000,
+            "received": 429210
+          },
+          {
+            "elapsedMs": 76645,
+            "saved": 459290,
+            "pending": 4550,
+            "received": 459950
+          },
+          {
+            "elapsedMs": 81744,
+            "saved": 489240,
+            "pending": 4520,
+            "received": 490550
+          },
+          {
+            "elapsedMs": 86830,
+            "saved": 520770,
+            "pending": 6000,
+            "received": 521060
+          },
+          {
+            "elapsedMs": 91932,
+            "saved": 550750,
+            "pending": 6000,
+            "received": 551680
+          },
+          {
+            "elapsedMs": 97077,
+            "saved": 582190,
+            "pending": 4460,
+            "received": 582550
+          },
+          {
+            "elapsedMs": 102171,
+            "saved": 612240,
+            "pending": 4510,
+            "received": 613110
+          },
+          {
+            "elapsedMs": 107281,
+            "saved": 643230,
+            "pending": 5540,
+            "received": 643720
+          },
+          {
+            "elapsedMs": 112382,
+            "saved": 673690,
+            "pending": 5960,
+            "received": 674360
+          },
+          {
+            "elapsedMs": 117520,
+            "saved": 703780,
+            "pending": 6160,
+            "received": 705100
+          },
+          {
+            "elapsedMs": 122658,
+            "saved": 735200,
+            "pending": 7540,
+            "received": 736030
+          },
+          {
+            "elapsedMs": 127774,
+            "saved": 766390,
+            "pending": 8690,
+            "received": 766710
+          },
+          {
+            "elapsedMs": 132867,
+            "saved": 796630,
+            "pending": 8900,
+            "received": 797280
+          },
+          {
+            "elapsedMs": 137971,
+            "saved": 826680,
+            "pending": 7950,
+            "received": 827910
+          },
+          {
+            "elapsedMs": 143107,
+            "saved": 858260,
+            "pending": 6540,
+            "received": 858730
+          },
+          {
+            "elapsedMs": 148229,
+            "saved": 888150,
+            "pending": 6400,
+            "received": 889460
+          },
+          {
+            "elapsedMs": 153340,
+            "saved": 919640,
+            "pending": 7040,
+            "received": 920110
+          },
+          {
+            "elapsedMs": 158476,
+            "saved": 949700,
+            "pending": 6100,
+            "received": 950940
+          },
+          {
+            "elapsedMs": 163648,
+            "saved": 981320,
+            "pending": 7680,
+            "received": 981970
+          },
+          {
+            "elapsedMs": 168766,
+            "saved": 1011230,
+            "pending": 12610,
+            "received": 1012620
+          },
+          {
+            "elapsedMs": 173860,
+            "saved": 1042780,
+            "pending": 13050,
+            "received": 1043150
+          },
+          {
+            "elapsedMs": 178987,
+            "saved": 1072680,
+            "pending": 14910,
+            "received": 1074010
+          }
+        ],
+        "drainMs": 3293
+      },
+      "rows": 17280000,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "everyTimestampVerified": true,
+      "allVoltagesVerified": true,
+      "evidenceFile": "capacity-6000-180-steady-chrome.txt",
+      "exitCode": 0,
+      "plannedSeconds": 180.0,
+      "profile": "normal operation",
+      "measuredWireFps": 5999.9422638889155
+    },
+    {
+      "passed": true,
+      "runtime": "chrome",
+      "fps": 3000,
+      "frames": 540000,
+      "faults": true,
+      "uploadDelayMs": 750,
+      "viewerRequests": 179,
+      "maxViewerMs": 1206,
+      "producer": {
+        "generated": 540000,
+        "sent": 540000,
+        "sendErrors": 0,
+        "elapsedMs": 180002.4675
+      },
+      "collector": {
+        "elapsedMs": 186821,
+        "saved": 540000,
+        "pending": 0,
+        "maxPending": 40540,
+        "missed": 0,
+        "outages": 6,
+        "restartRecovered": true,
+        "samples": [
+          {
+            "elapsedMs": 5125,
+            "saved": 15060,
+            "pending": 6800,
+            "received": 15410
+          },
+          {
+            "elapsedMs": 10528,
+            "saved": 30810,
+            "pending": 22550,
+            "received": 31610
+          },
+          {
+            "elapsedMs": 15642,
+            "saved": 46590,
+            "pending": 38330,
+            "received": 46960
+          },
+          {
+            "elapsedMs": 20771,
+            "saved": 61580,
+            "pending": 35320,
+            "received": 62260
+          },
+          {
+            "elapsedMs": 25913,
+            "saved": 77310,
+            "pending": 33020,
+            "received": 77770
+          },
+          {
+            "elapsedMs": 31220,
+            "saved": 93040,
+            "pending": 30750,
+            "received": 93690
+          },
+          {
+            "elapsedMs": 36358,
+            "saved": 108830,
+            "pending": 28990,
+            "received": 109110
+          },
+          {
+            "elapsedMs": 41491,
+            "saved": 123830,
+            "pending": 23990,
+            "received": 124510
+          },
+          {
+            "elapsedMs": 46615,
+            "saved": 139590,
+            "pending": 24790,
+            "received": 139870
+          },
+          {
+            "elapsedMs": 51798,
+            "saved": 155330,
+            "pending": 24530,
+            "received": 155420
+          },
+          {
+            "elapsedMs": 56890,
+            "saved": 170320,
+            "pending": 22520,
+            "received": 170700
+          },
+          {
+            "elapsedMs": 62016,
+            "saved": 185300,
+            "pending": 20500,
+            "received": 186060
+          },
+          {
+            "elapsedMs": 67253,
+            "saved": 201070,
+            "pending": 19270,
+            "received": 201770
+          },
+          {
+            "elapsedMs": 72389,
+            "saved": 216830,
+            "pending": 19520,
+            "received": 217200
+          },
+          {
+            "elapsedMs": 77505,
+            "saved": 231800,
+            "pending": 17500,
+            "received": 232550
+          },
+          {
+            "elapsedMs": 82599,
+            "saved": 247570,
+            "pending": 19240,
+            "received": 247830
+          },
+          {
+            "elapsedMs": 87731,
+            "saved": 262550,
+            "pending": 16220,
+            "received": 263210
+          },
+          {
+            "elapsedMs": 92843,
+            "saved": 278300,
+            "pending": 19490,
+            "received": 278530
+          },
+          {
+            "elapsedMs": 97939,
+            "saved": 293300,
+            "pending": 17980,
+            "received": 293850
+          },
+          {
+            "elapsedMs": 103060,
+            "saved": 309080,
+            "pending": 17270,
+            "received": 309220
+          },
+          {
+            "elapsedMs": 108168,
+            "saved": 324080,
+            "pending": 15780,
+            "received": 324540
+          },
+          {
+            "elapsedMs": 113288,
+            "saved": 339800,
+            "pending": 15500,
+            "received": 339900
+          },
+          {
+            "elapsedMs": 118414,
+            "saved": 354810,
+            "pending": 17020,
+            "received": 355280
+          },
+          {
+            "elapsedMs": 123549,
+            "saved": 370590,
+            "pending": 17290,
+            "received": 370680
+          },
+          {
+            "elapsedMs": 128644,
+            "saved": 385550,
+            "pending": 15720,
+            "received": 385970
+          },
+          {
+            "elapsedMs": 133764,
+            "saved": 400550,
+            "pending": 18240,
+            "received": 401300
+          },
+          {
+            "elapsedMs": 138868,
+            "saved": 416310,
+            "pending": 17490,
+            "received": 416640
+          },
+          {
+            "elapsedMs": 143995,
+            "saved": 431270,
+            "pending": 15960,
+            "received": 432020
+          },
+          {
+            "elapsedMs": 149140,
+            "saved": 447080,
+            "pending": 19250,
+            "received": 447450
+          },
+          {
+            "elapsedMs": 154272,
+            "saved": 462040,
+            "pending": 17740,
+            "received": 462830
+          },
+          {
+            "elapsedMs": 159389,
+            "saved": 477780,
+            "pending": 16950,
+            "received": 478200
+          },
+          {
+            "elapsedMs": 164511,
+            "saved": 492810,
+            "pending": 19560,
+            "received": 493550
+          },
+          {
+            "elapsedMs": 169607,
+            "saved": 508570,
+            "pending": 18740,
+            "received": 508850
+          },
+          {
+            "elapsedMs": 174732,
+            "saved": 523540,
+            "pending": 17270,
+            "received": 524230
+          },
+          {
+            "elapsedMs": 179836,
+            "saved": 539310,
+            "pending": 16490,
+            "received": 539540
+          },
+          {
+            "elapsedMs": 184977,
+            "saved": 540000,
+            "pending": 1180,
+            "received": 540000
+          }
+        ],
+        "drainMs": 6468
+      },
+      "rows": 8640000,
+      "missingFrames": 0,
+      "invalidFrames": 0,
+      "everyTimestampVerified": true,
+      "allVoltagesVerified": true,
+      "evidenceFile": "capacity-3000-180-faults-chrome.txt",
+      "exitCode": 0,
+      "plannedSeconds": 180.0,
+      "profile": "delayed uploads + outage",
+      "measuredWireFps": 2999.9588755637474
+    }
+  ]
+}

@@ -18,17 +18,19 @@ if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL is requir
 const frames = Number(process.env.THROUGHPUT_FRAMES || 60000);
 const fps = Number(process.env.THROUGHPUT_FPS || 1000);
 const uploadDelayMs = Number(process.env.THROUGHPUT_UPLOAD_DELAY_MS ?? 750);
-if (!Number.isSafeInteger(frames) || frames < fps * 30 || frames % 10 || ![1000, 2000, 3000].includes(fps)) throw new Error('Use >=30 seconds of frames in batches of 10; fps 1000, 2000 or 3000');
+const faults = process.env.THROUGHPUT_FAULTS !== '0';
+if (!Number.isSafeInteger(fps) || fps < 100 || fps > 32000 || !Number.isSafeInteger(frames) || frames < fps * 30 || frames % 10) throw new Error('Use integer fps 100–32000 and >=30 seconds of frames in batches of 10');
 if (!Number.isSafeInteger(uploadDelayMs) || uploadDelayMs < 0 || uploadDelayMs > 5000) throw new Error('Use upload delay 0–5000 ms');
 const store = new PostgresStore(process.env.TEST_DATABASE_URL);
-let server, listener, worker, device, browser, browserProfile, viewerTimer, viewerTask, viewerError;
+let server, listener, worker, device, browser, browserProfile, viewerTimer, viewerTask, viewerError, api;
 let viewerRequests = 0, maxViewerMs = 0;
+let observation = null;
 const browserMode = process.env.THROUGHPUT_BROWSER === '1';
 let stats = null, startedAt = 0, uploadRequests = 0, outageRequests = 0, retryRequests = 0;
 try {
   device = await store.createDevice({deviceName:'1kSPS acceptance test', serialNumber:randomUUID()});
   const session = await store.createSession({deviceId:device.deviceId,sessionName:'Synthetic throughput acceptance',startTime:new Date().toISOString()});
-  const api = createApp(store);
+  api = createApp(store);
   listener = await startDeviceListener(api, {port:0,host:'127.0.0.1'});
   worker = new Worker(new URL('./throughput-producer.mjs', import.meta.url), {workerData:{port:listener.address().port,frames,fps}});
   worker.on('message', value => { stats = value; });
@@ -40,7 +42,8 @@ try {
   host.post('/test/result', express.json(), (req,res) => { finishBrowser(req.body); res.json({ok:true}); });
   const benchmarkBuild = fileURLToPath(new URL('../apps/monitor/build/throughput-web/',import.meta.url));
   host.use('/bench', express.static(benchmarkBuild));
-  host.get('/test/config', (_req,res) => res.json({sessionId:session.sessionId, frames, fps}));
+  host.get('/test/config', (_req,res) => res.json({sessionId:session.sessionId, frames, fps, faults}));
+  host.post('/test/observation', express.json(), (req,res) => { observation = req.body; res.json({ok:true}); });
   host.post('/test/start', (_req,res) => {
     if (startedAt) return res.status(409).json({error:'Already started'});
     startedAt = Date.now(); worker.postMessage('start'); res.json({ok:true});
@@ -51,13 +54,13 @@ try {
       uploadRequests++;
       // Database upload outage only: acquisition/paging remains reachable.
       const elapsed = Date.now() - startedAt;
-      if (elapsed >= 5000 && elapsed < 15000) {
+      if (faults && elapsed >= 5000 && elapsed < 15000) {
         outageRequests++;
         await new Promise(resolve => setTimeout(resolve, 1500));
         return res.status(503).json({error:'Synthetic upload outage'});
       }
       // Commit one batch then lose its response. Retrying must not duplicate SQL rows.
-      if (uploadRequests === 1) {
+      if (faults && uploadRequests === 1) {
         const original = res.json.bind(res);
         res.json = body => {
           if (res.statusCode === 201) { retryRequests++; res.status(503); return original({error:'Synthetic lost commit response'}); }
@@ -148,9 +151,16 @@ try {
     }
     sequence += rows.length/16; after=rows.at(-1).recorded_at;
   }
-  if (!outageRequests || retryRequests!==1) throw new Error('Outage/retry scenarios did not run');
+  if (faults && (!outageRequests || retryRequests!==1)) throw new Error('Outage/retry scenarios did not run');
   console.log('THROUGHPUT_RESULT '+JSON.stringify({fps, uploadDelayMs, viewerRequests, maxViewerMs, recordedSpanUs:Number(lastUs-firstUs), everyTimestampVerified:true, runtime:process.env.THROUGHPUT_BROWSER === '1' ? 'chrome' : 'dart-vm', ...stats, ...count, outageRequests, retryRequests,
       missingFrames:source.missingFrames, invalidFrames:source.invalidFrames, actualReceiveBufferBytes:listener.getRecvBufferSize(), allVoltagesVerified:true}));
+  console.log('CAPACITY_RESULT '+JSON.stringify({passed:true,runtime:browserMode?'chrome':'dart-vm',fps,frames,faults,uploadDelayMs,viewerRequests,maxViewerMs,producer:stats,collector:observation,
+    rows:count.rows,missingFrames:source.missingFrames,invalidFrames:source.invalidFrames,everyTimestampVerified:true,allVoltagesVerified:true}));
+} catch (error) {
+  const source = api?.locals.deviceSources()[0];
+  console.log('CAPACITY_RESULT '+JSON.stringify({passed:false,runtime:browserMode?'chrome':'dart-vm',fps,frames,faults,uploadDelayMs,viewerRequests,maxViewerMs,producer:stats,collector:observation,
+    received:source?.uniqueFrames,missingFrames:source?.missingFrames,invalidFrames:source?.invalidFrames,error:error.message}));
+  throw error;
 } finally {
   clearInterval(viewerTimer); await viewerTask;
   if (browser) {

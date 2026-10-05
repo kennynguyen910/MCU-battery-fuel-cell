@@ -16,6 +16,12 @@ See the [capture next-steps guide](app/docs/1ksps-capture.md) for results, repro
 and the physical phone/ESP32 gate. The linked September PDF remains a dated
 provisioning roadmap.
 
+**Current measured software ceiling:** normal uploads passed 6kSPS for three
+minutes in native and Chrome; the delayed-upload/outage profile passed 3kSPS.
+Native 7kSPS / delayed 3.5kSPS exhausted the pending buffer. The
+[upper-bound report](app/docs/capacity-limits.md) preserves all attempts and
+conditions. Firmware acquisition remains configured at 1kHz.
+
 | State | What it means |
 | --- | --- |
 | READY IN HOST TESTS | Measurement formats match; 15 shared Python/Node/Flutter tests pass. |

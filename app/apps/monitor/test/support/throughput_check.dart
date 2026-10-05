@@ -19,6 +19,7 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
         jsonDecode((await client.get(Uri.parse('$url/test/config'))).body)
             as Map;
     final expected = config['frames'] as int;
+    final faults = config['faults'] != false;
     var log = harness.open();
     await log.load();
     var capture = BufferedCapture(api, log);
@@ -57,7 +58,7 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
       try {
         await log.flush(api);
       } on ApiException catch (error) {
-        if (error.statusCode == 503) {
+        if (faults && error.statusCode == 503) {
           outages++;
         } else {
           saveError = error;
@@ -76,6 +77,19 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
     final deadline = DateTime.now()
         .add(Duration(seconds: expected ~/ (config['fps'] as int) + 90));
     var savedBeforeReload = 0;
+    final started = DateTime.now();
+    var nextObservation = 5000;
+    final samples = <Map<String, dynamic>>[];
+    Map<String, dynamic> snapshot() => {
+          'elapsedMs': DateTime.now().difference(started).inMilliseconds,
+          'saved': savedBeforeReload + capture.saved,
+          'pending': log.pending,
+          'maxPending': maxPending,
+          'missed': capture.missed,
+          'outages': outages,
+          'restartRecovered': reloaded,
+          'samples': List.of(samples)
+        };
     DateTime? producerFinished;
     try {
       while (true) {
@@ -83,7 +97,7 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
         if (saveError != null) throw saveError!;
         check(capture.missed == 0, 'Reader buffer loss');
         // Recover while the backlog is present, using the real on-disk journal.
-        if (!reloaded && outages >= 3) {
+        if (faults && !reloaded && outages >= 3) {
           reloading = true;
           while (saving || uploading) {
             await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -102,6 +116,16 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
         final status =
             jsonDecode((await client.get(Uri.parse('$url/test/status'))).body)
                 as Map;
+        final elapsed = DateTime.now().difference(started).inMilliseconds;
+        if (elapsed >= nextObservation) {
+          samples.add({
+            'elapsedMs': elapsed,
+            'saved': savedBeforeReload + capture.saved,
+            'pending': log.pending,
+            'received': (status['source'] as Map?)?['uniqueFrames']
+          });
+          nextObservation = elapsed + 5000;
+        }
         if (status['producer'] != null) producerFinished ??= DateTime.now();
         if (producerFinished != null) {
           check(DateTime.now().difference(producerFinished).inSeconds < 10,
@@ -116,6 +140,16 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
           throw StateError(
               'Capture failed to drain at wire rate: saved=${savedBeforeReload + capture.saved}/$expected pending=${log.pending}');
       }
+    } catch (error) {
+      final observation = snapshot()..['failure'] = error.toString();
+      try {
+        await client
+            .post(Uri.parse('$url/test/observation'),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(observation))
+            .timeout(const Duration(seconds: 5));
+      } catch (_) {/* Preserve the original acceptance failure. */}
+      rethrow;
     } finally {
       receiveTimer.cancel();
       uploadTimer.cancel();
@@ -124,19 +158,27 @@ Future<Map<String, dynamic>> runThroughputAcceptance(String url) async {
       }
       capture.stop();
     }
-    check(reloaded, 'Journal reload scenario did not run');
-    check(outages > 0, 'Upload outage did not run');
+    if (faults) {
+      check(reloaded, 'Journal reload scenario did not run');
+      check(outages > 0, 'Upload outage did not run');
+    }
     check(capture.missed == 0, 'Reader buffer loss');
     final restored = harness.open();
     await restored.load();
     check(restored.pending == 0, 'Recovery left pending frames');
+    final observation = snapshot()
+      ..['drainMs'] =
+          DateTime.now().difference(producerFinished!).inMilliseconds;
+    await client.post(Uri.parse('$url/test/observation'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(observation));
     return {
       'frames': expected,
       'missed': capture.missed,
       'maxPending': maxPending,
       'uploadFailures': outages,
       'restartRecovered': reloaded,
-      'drainMs': DateTime.now().difference(producerFinished!).inMilliseconds
+      'drainMs': DateTime.now().difference(producerFinished).inMilliseconds
     };
   } finally {
     api.close();

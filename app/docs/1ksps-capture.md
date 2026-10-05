@@ -8,6 +8,12 @@
 
 **NEXT ACTION:** run the target phone against the real board, router and database.
 
+**Capacity search update:** three-minute native and Chrome tests passed 6kSPS
+with normal uploads and 3kSPS with delayed uploads/outage recovery. Native 7kSPS
+and delayed 3.5kSPS exhausted pending retention. See the
+[current upper-bound report](capacity-limits.md) for measured intervals and all
+failure traces. The existing product target and physical gate remain below.
+
 A frame contains **all 16 channels**. At 2kSPS the database stores 32,000 channel
 readings each second. The firmware's existing 1kHz acquisition timer is preserved.
 The application now has headroom above that rate; these tests do not raise the ADC rate.
@@ -104,7 +110,8 @@ $env:CHROME_EXECUTABLE = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 
 For the minimum baseline: remove `THROUGHPUT_BROWSER`, set FPS to `1000` and
 frames to `120000`. For the shorter stress case: FPS `3000`, frames `180000`,
-`THROUGHPUT_VIEWER='1'`, native mode. Rates 1000, 2000 and 3000 are supported;
+`THROUGHPUT_VIEWER='1'`, native mode. Integer rates from 100 through 32000 are
+supported for capacity testing; production acquisition remains at 1kHz.
 frames must be divisible by ten and represent at least 30 seconds. Defaults
 are native 1000 FPS, 60000 frames, and 750 ms extra upload delay. On macOS/Linux
 pass the Flutter executable path. Do not run expensive post-capture database
@@ -118,6 +125,15 @@ Unique test records are cleaned up. Test-only failure routes are absent from
 production. A nonzero exit or skipped test is **failed/unverified acceptance**.
 Browser mode builds a separate test entry point with local engine assets and an
 isolated temporary profile, using the same production collector and journal.
+
+For normal-operation capacity testing, set `THROUGHPUT_FAULTS='0'` and
+`THROUGHPUT_UPLOAD_DELAY_MS='0'`; this explicitly disables synthetic outages,
+lost acknowledgements and outage-time journal reload. Final journal reload,
+exact counts/voltages/timestamps and the ten-second drain limit still apply.
+Set `THROUGHPUT_VIEWER='1'` to include normal live history reads. Every run emits
+`CAPACITY_RESULT`, including pass/fail and pending-data observations. Failures
+must remain in the evidence; a short pass alone does not establish a sustained
+ceiling. These controls exist only in the acceptance harness.
 
 ## Next bench steps — complete before claiming physical reliability
 
