@@ -16,6 +16,13 @@ class CaptureJournalReplay {
     for (final key in (op['ack'] ?? []) as List) {
       entries[key]?['uploaded'] = true;
     }
+    if (op['removeSession'] != null) {
+      final target = op['removeSession'] as Map;
+      final apiUrl = target['apiUrl'] as String;
+      final sessionId = target['sessionId'] as String;
+      entries.removeWhere(
+          (_, e) => e['apiUrl'] == apiUrl && e['sessionId'] == sessionId);
+    }
     final uploaded = entries.entries
         .where((e) => e.value['uploaded'] == true)
         .map((e) => e.key)

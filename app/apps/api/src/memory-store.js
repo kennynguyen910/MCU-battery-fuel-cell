@@ -57,10 +57,22 @@ export class MemoryStore {
     return session;
   }
 
+  async deleteSession(sessionId) {
+    const index = this.sessions.findIndex(item => item.sessionId === sessionId);
+    if (index < 0) return false;
+    this.sessions.splice(index, 1);
+    this.measurements.delete(sessionId);
+    return true;
+  }
+
   // Update an existing time/channel pair rather than adding duplicate rows.
   async addSamples(sessionId, samples) {
     const session = this.sessions.find((item) => item.sessionId === sessionId);
-    if (!session) throw new Error("sessionId was not found");
+    if (!session) {
+      const error = new Error("sessionId was not found");
+      error.code = '23503';
+      throw error;
+    }
     const rows = this.measurements.get(sessionId);
     const index = new Map(rows.map(row => [`${row.recordedAt}/${row.channel}`, row]));
     for (const sample of samples) {

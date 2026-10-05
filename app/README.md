@@ -141,12 +141,18 @@ Database rows survive API and app restarts. The local database is loopback-only,
 with trust authentication for this development cluster; it is not a production
 configuration.
 
-Every captured frame is written locally before upload. Android/iOS write
-capstone-log.json in the app documents directory. The browser collector uses
-localStorage. **View local log** shows the JSON. Entries include destination API,
+Every captured frame is written locally before upload. Android/iOS use an
+append journal in the app documents directory; the browser uses IndexedDB.
+Older JSON logs are migrated automatically. **View local log** shows the JSON. Entries include destination API,
 session, original timestamp, and upload status. Failed uploads retry automatically
 for the currently connected API. Do not clear app/browser storage before pending
 uploads finish.
+
+To organize saved sessions, select one in the collector or web history and
+choose **Delete session**. Confirming permanently removes the session and its
+saved readings. Stop any collectors using it first. Deletion is disabled during
+capture on this collector; its local frames for the deleted session are also
+removed after the server confirms deletion. Other sessions and devices remain.
 
 ## Verification commands
 

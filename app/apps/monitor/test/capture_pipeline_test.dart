@@ -133,6 +133,27 @@ void main() {
   });
 
   test(
+      'native journal session removal survives restart and later acknowledgements',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('capstone-delete-');
+    try {
+      final journal = FileCaptureJournal(() async => directory);
+      final log = CaptureLog(read: journal.read, operation: journal.append);
+      await log.append(Api.defaultUrl, 'remove', frame(1));
+      await log.append(Api.defaultUrl, 'keep', frame(2));
+      await log.append('http://another-api', 'remove', frame(3));
+      await log.discardSession(Api.defaultUrl, 'remove');
+      final restored =
+          CaptureLog(read: journal.read, operation: journal.append);
+      await restored.load();
+      expect(restored.entries.map((e) => e['frameId']), ['2', '3']);
+      expect(restored.pending, 2);
+    } finally {
+      await directory.delete(recursive: true);
+    }
+  });
+
+  test(
       'native journal migrates, compacts and recovers a torn append with all pending frames',
       () async {
     final directory =

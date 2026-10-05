@@ -82,7 +82,12 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
       await _capture.drain(upload: false);
       if (_leaving) return;
       unawaited(_capture.uploadPending().catchError((Object error) {
-        if (error is ApiException && error.statusCode == 401) _capture.stop();
+        if (error is ApiException &&
+            (error.statusCode == 401 ||
+                (error.statusCode == 404 &&
+                    error.message == 'Session not found'))) {
+          _capture.stop();
+        }
         _show('Saved uploads pending: $error');
       }));
     } catch (error) {

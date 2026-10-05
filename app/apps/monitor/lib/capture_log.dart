@@ -91,6 +91,21 @@ class CaptureLog {
         _known.addAll(keys);
       });
 
+  /// Call after stopping producers and uploads, and after server deletion succeeds.
+  /// Commit removal before changing memory so a failed save remains retryable.
+  Future<void> discardSession(String apiUrl, String sessionId) =>
+      _commit(() async {
+        final next = entries
+            .where((e) => e['apiUrl'] != apiUrl || e['sessionId'] != sessionId)
+            .toList();
+        if (next.length == entries.length) return;
+        await _save({
+          'removeSession': {'apiUrl': apiUrl, 'sessionId': sessionId}
+        }, next);
+        entries = next;
+        _index();
+      });
+
   /// One flush owner, bounded workers and a finite snapshot. Producers continue
   /// while HTTP is pending. All in-flight acknowledgements settle before return.
   Future<int> flush(Api api) {

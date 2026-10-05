@@ -168,6 +168,16 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
       response.json(session);
     } catch (error) { next(error); }
   });
+  // Authentication above applies to deletion just as it does to other data routes.
+  app.delete("/api/sessions/:sessionId", async (request, response, next) => {
+    try {
+      const sessionId = validateUuid(request.params.sessionId, 'sessionId');
+      if (!await store.deleteSession(sessionId)) {
+        return response.status(404).json({ error: "Session not found" });
+      }
+      response.status(204).end();
+    } catch (error) { next(error); }
+  });
   // Each validated sample becomes 16 rows inside one database transaction.
   app.post("/api/sessions/:sessionId/measurements", async (request, response, next) => {
     try {
@@ -177,7 +187,11 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
         return response.status(404).json({ error: "Session not found" });
       }
       response.status(201).json(await store.addSamples(sessionId, samples));
-    } catch (error) { next(error); }
+    } catch (error) {
+      // Deletion can win after the metadata read but before the upload commits.
+      if (error.code === '23503') return response.status(404).json({ error: "Session not found" });
+      next(error);
+    }
   });
 
   // Unknown endpoints return JSON so Flutter never receives an HTML error page.

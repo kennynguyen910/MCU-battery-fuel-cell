@@ -16,6 +16,7 @@ names to 120, and notes to 2,000.
 | GET | /sessions | List newest-first sessions |
 | POST | /sessions | Create from deviceId, sessionName, startTime, optional notes |
 | GET | /sessions/:id | Metadata and saved measurement rows |
+| DELETE | /sessions/:id | Permanently delete the session and its measurement rows; 204 on success |
 | POST | /sessions/:id/measurements | Upload complete measurement samples |
 | GET | /test-input | Latest transient device frame, or null before publication |
 | POST | /test-input | Validate and publish a transient frame; no SQL writes |
@@ -142,6 +143,29 @@ session endTime remains the precise maximum committed sample time.
 Invalid calendar dates, missing UTC timezone, and reversed ranges return 400.
 Leave a boundary out for an open-ended range; omit both for full history.
 Pagination remains future work.
+
+## Delete a session
+
+`DELETE /sessions/:id` uses the same authentication as other data routes.
+Success returns **204 with no body**; an invalid UUID returns 400 and a missing
+session returns 404 (`Session not found`). A single database deletion cascades
+all associated measurements atomically. The device and other sessions are kept.
+Uploads to a deleted session return 404, including an upload that loses a race
+with deletion; they cannot recreate the session.
+
+The collector and history viewer expose **Delete session** below the session
+selector. Confirmation names the session and explains permanent removal.
+Stop capture first. This collector disables deletion while capturing and waits
+for in-flight uploads and local saves before deleting. On confirmed deletion,
+it removes local pending and uploaded frames only for that API and session.
+Local cleanup failures pause uploads and provide **Retry local cleanup**.
+Failed server requests preserve local data. Retrying a deletion can complete
+cleanup if the API confirms the session was already removed.
+
+Stop other collectors using the session before deleting it. The API has no
+global capture lease. A collector detecting remote removal stops acquisition;
+local pending frames on that other collector remain preserved for inspection
+or export, and uploads to the removed session fail visibly.
 
 ## Errors and database structure
 

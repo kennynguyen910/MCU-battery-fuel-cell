@@ -101,6 +101,7 @@ class _DashboardState extends State<Dashboard> {
   String? receiveProblem, uploadProblem;
   // `busy` protects polling, while `action` protects user-triggered operations.
   bool busy = false, action = false, capturing = false;
+  ({String apiUrl, String sessionId, String name})? pendingDeletion;
   int uploaded = 0;
   Timer? timer;
 
@@ -140,7 +141,8 @@ class _DashboardState extends State<Dashboard> {
   /// Poll only the data needed by the current role. The guard prevents a slow
   /// request from overlapping the next timer tick or a button action.
   Future<void> refresh() async {
-    if (busy || action || !logReady || loginRequired) return;
+    if (busy || action || pendingDeletion != null || !logReady || loginRequired)
+      return;
     busy = true;
     try {
       if (widget.role == AppRole.network) {
@@ -185,9 +187,17 @@ class _DashboardState extends State<Dashboard> {
         if (!mounted) return;
         sessions = list;
         if (!list.any((s) => s['sessionId'] == selected)) {
+          if (capturing) {
+            capturing = false;
+            buffered.stop();
+            notice =
+                'The capture session was removed. Capture stopped; local frames are preserved.';
+          }
           // Default to the newest session when the old selection disappears.
           selected = list.isEmpty ? null : list.first['sessionId'] as String;
           rows = [];
+          storedMeasurementCount = 0;
+          historyTruncated = false;
         }
         if (widget.role == AppRole.mobile) {
           dynamic frame;
@@ -284,6 +294,14 @@ class _DashboardState extends State<Dashboard> {
       } else if (!buffered.active && capturing && deviceMode) {
         capturing = false;
       }
+      if (error is ApiException &&
+          error.statusCode == 404 &&
+          error.message == 'Session not found') {
+        capturing = false;
+        buffered.stop();
+        notice =
+            'An upload session was removed. Capture stopped; local frames are preserved.';
+      }
       if (receiving) {
         receiveProblem = '$error';
       } else {
@@ -312,6 +330,7 @@ class _DashboardState extends State<Dashboard> {
         !mounted ||
         !logReady ||
         action ||
+        pendingDeletion != null ||
         loginRequired ||
         widget.role != AppRole.mobile) return;
     uploading = true;
@@ -394,6 +413,102 @@ class _DashboardState extends State<Dashboard> {
       if (mounted) setState(() => action = false);
     }
     if (mounted) await refresh();
+  }
+
+  /// Freeze selection and producers while confirming, then settle existing work.
+  /// Local removal follows server confirmation and can be retried independently.
+  Future<void> deleteSession() async {
+    if (action || capturing || selected == null || loginRequired) return;
+    final matches = sessions.where((s) => s['sessionId'] == selected);
+    if (matches.isEmpty) return;
+    final target = (
+      apiUrl: api.baseUrl,
+      sessionId: selected!,
+      name: matches.first['sessionName'] as String
+    );
+    setState(() => action = true);
+    try {
+      final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+                scrollable: true,
+                title: const Text('Delete this session?'),
+                content: Text(
+                    'Permanently delete “${target.name}” and all of its saved readings? '
+                    '${widget.role == AppRole.mobile ? 'Any local frames for this session on this collector will also be removed. ' : ''}'
+                    'This cannot be undone. Stop other collectors using this session first.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      style: FilledButton.styleFrom(
+                          backgroundColor: Theme.of(context).colorScheme.error),
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Delete session')),
+                ],
+              ));
+      if (confirmed != true || !mounted) return;
+      while ((busy || uploading) && mounted) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      buffered.stop();
+      await buffered.idle;
+      if (!mounted) return;
+      await api.deleteSession(target.sessionId);
+      // Remember confirmed deletion before disk work: failed cleanup must never
+      // restart doomed retries or let a new capture use the removed session.
+      if (!mounted) return;
+      setState(() {
+        pendingDeletion = target;
+        sessions.removeWhere((s) => s['sessionId'] == target.sessionId);
+        selected = null;
+        rows = [];
+        storedMeasurementCount = 0;
+        historyTruncated = false;
+        historyQuery = '';
+        lastFrame = null;
+        lastDeviceCursor = null;
+        captureSummary = '';
+      });
+      await finishDeletion();
+    } catch (error) {
+      if (mounted) setState(() => notice = 'Delete failed: $error');
+    } finally {
+      if (mounted) setState(() => action = false);
+    }
+    if (mounted && pendingDeletion == null) await refresh();
+  }
+
+  Future<void> finishDeletion() async {
+    final target = pendingDeletion;
+    if (target == null) return;
+    try {
+      if (widget.role == AppRole.mobile) {
+        await log.discardSession(target.apiUrl, target.sessionId);
+      }
+      if (mounted)
+        setState(() {
+          pendingDeletion = null;
+          uploadProblem = null;
+          notice = 'Session “${target.name}” deleted.';
+        });
+    } catch (error) {
+      if (mounted)
+        setState(() => notice =
+            'Session deleted. Local cleanup needs attention: $error. Retry cleanup to continue.');
+    }
+  }
+
+  Future<void> retryDeletionCleanup() async {
+    if (action || pendingDeletion == null) return;
+    setState(() => action = true);
+    try {
+      await finishDeletion();
+    } finally {
+      if (mounted) setState(() => action = false);
+    }
+    if (mounted && pendingDeletion == null) await refresh();
   }
 
   /// Stopping is local and immediate. Starting records a baseline so a frame
@@ -479,7 +594,7 @@ class _DashboardState extends State<Dashboard> {
   }
 
   Future<void> openDeviceConnections() async {
-    if (action || capturing) return;
+    if (action || capturing || pendingDeletion != null) return;
     setState(() => action = true);
     try {
       // Let an existing upload finish; pause new polls while this route owns the log.
@@ -592,7 +707,7 @@ class _DashboardState extends State<Dashboard> {
       AppRole.web => 'Measurement history',
       AppRole.network => 'Network lab',
     };
-    final ready = !busy && !action;
+    final ready = !busy && !action && pendingDeletion == null;
     Widget gap() => const SizedBox(height: 14);
     return Scaffold(
       appBar: AppBar(
@@ -619,8 +734,9 @@ class _DashboardState extends State<Dashboard> {
             Padding(
                 padding: const EdgeInsets.only(bottom: 14),
                 child: OutlinedButton.icon(
-                    onPressed:
-                        !action && !capturing ? openDeviceConnections : null,
+                    onPressed: !action && !capturing && pendingDeletion == null
+                        ? openDeviceConnections
+                        : null,
                     icon: const Icon(Icons.settings_input_antenna),
                     label:
                         const Text('Device connections · BLE / Wi-Fi / USB'))),
@@ -694,6 +810,11 @@ class _DashboardState extends State<Dashboard> {
                   Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Text(notice)),
+                if (pendingDeletion != null)
+                  TextButton.icon(
+                      onPressed: action ? null : retryDeletionCleanup,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry local cleanup')),
               ]),
           if (!loginRequired) ...[
             if (role == AppRole.network)
@@ -811,6 +932,18 @@ class _DashboardState extends State<Dashboard> {
                                   });
                                   refresh();
                                 }),
+                    if (selected != null) ...[
+                      TextButton.icon(
+                          onPressed: !ready || capturing ? null : deleteSession,
+                          style: TextButton.styleFrom(
+                              foregroundColor:
+                                  Theme.of(context).colorScheme.error),
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Delete session')),
+                      if (capturing)
+                        const Text(
+                            'Stop capture before deleting this session.'),
+                    ],
                     if (role == AppRole.mobile) ...[
                       gap(),
                       TextField(

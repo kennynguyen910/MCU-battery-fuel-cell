@@ -40,19 +40,26 @@ class Api {
         client = client ?? http.Client();
   final http.Client client;
 
-  /// GET when [body] is absent and POST JSON otherwise. The API always responds
-  /// with JSON, including errors, so callers receive one predictable shape.
-  Future<dynamic> request(String path, [Map<String, dynamic>? body]) async {
+  /// GET when [body] is absent and POST JSON otherwise.
+  Future<dynamic> request(String path, [Map<String, dynamic>? body]) =>
+      _request(body == null ? 'GET' : 'POST', path, body);
+
+  Future<dynamic> _request(String method, String path,
+      [Map<String, dynamic>? body]) async {
     final uri = Uri.parse('$baseUrl/api$path');
-    final response = await (body == null
-            ? client.get(uri,
+    final response = await (method == 'DELETE'
+            ? client.delete(uri,
                 headers: {if (token != null) 'Authorization': 'Bearer $token'})
-            : client.post(uri,
-                headers: {
-                  'Content-Type': 'application/json',
-                  if (token != null) 'Authorization': 'Bearer $token'
-                },
-                body: jsonEncode(body)))
+            : method == 'GET'
+                ? client.get(uri, headers: {
+                    if (token != null) 'Authorization': 'Bearer $token'
+                  })
+                : client.post(uri,
+                    headers: {
+                      'Content-Type': 'application/json',
+                      if (token != null) 'Authorization': 'Bearer $token'
+                    },
+                    body: jsonEncode(body)))
         .timeout(const Duration(seconds: 5));
     dynamic data;
     try {
@@ -70,6 +77,17 @@ class Api {
               : 'Request failed: ${response.statusCode}');
     }
     return data;
+  }
+
+  /// A repeated deletion is safe if this API confirms the session is gone.
+  /// An unknown route on an older server must still fail and preserve local data.
+  Future<void> deleteSession(String sessionId) async {
+    try {
+      await _request('DELETE', '/sessions/$sessionId');
+    } on ApiException catch (error) {
+      if (error.statusCode != 404 || error.message != 'Session not found')
+        rethrow;
+    }
   }
 
   Future<void> login(String username, String password) async {

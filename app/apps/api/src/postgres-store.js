@@ -70,6 +70,14 @@ export class PostgresStore {
     return (await this.getSession(rows[0].sessionId));
   }
 
+  // The existing measurement foreign key cascades within this one statement.
+  // The device and its other sessions remain intact; late uploads cannot recreate it.
+  async deleteSession(sessionId) {
+    const result = await this.pool.query(
+      'DELETE FROM test_session WHERE session_id = $1 RETURNING session_id', [sessionId]);
+    return result.rowCount === 1;
+  }
+
   // A frame is atomic: either all 16 rows commit, or none of them do.
   async addSamples(sessionId, samples) {
     const client = await this.pool.connect();
