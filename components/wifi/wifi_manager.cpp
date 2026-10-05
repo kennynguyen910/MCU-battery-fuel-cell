@@ -4,6 +4,7 @@
 #include "wifi_config.hpp"
 #endif
 #include "wifi_test_config.hpp"
+#include "secure_zero.hpp"
 
 #include <cstring>
 #include "esp_log.h"
@@ -61,7 +62,7 @@ void WiFiManager::cleanup()
     // NVS, esp_netif and the default event loop are shared with other components.
 }
 
-bool WiFiManager::init()
+bool WiFiManager::init(bool allow_development_seed)
 {
     if (initialized_) {
         return true;
@@ -69,25 +70,24 @@ bool WiFiManager::init()
     state_.store(WiFiState::CONNECTION_FAILED);
     ESP_LOGI(TAG, "Wi-Fi initialization started");
 
-    nvs_ready_ = false;
     scan_faulted_ = false;
-    esp_err_t error = nvs_flash_init();
-    if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS requires erase and reinitialization");
-        if (!check(nvs_flash_erase(), "Erase NVS")) {
-            return false;
-        }
+    esp_err_t error = ESP_OK;
+    if (!nvs_ready_) {
         error = nvs_flash_init();
+        if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            ESP_LOGW(TAG, "NVS requires erase and reinitialization");
+            if (!check(nvs_flash_erase(), "Erase NVS")) return false;
+            error = nvs_flash_init();
+        }
+        if (!check(error, "Initialize NVS")) return false;
+        nvs_ready_ = true;
     }
-    if (!check(error, "Initialize NVS")) {
-        return false;
-    }
-    nvs_ready_ = true;
     WiFiCredentials credentials{};
+    SensitiveScope credentials_scope(&credentials, sizeof(credentials));
     error = readCredentials(credentials);
 #if WIFI_ENABLE_DEVELOPMENT_SEED
     // Only a missing namespace/key permits seeding; never overwrite a read error.
-    if (error == ESP_ERR_NVS_NOT_FOUND) {
+    if (allow_development_seed && error == ESP_ERR_NVS_NOT_FOUND) {
         static_assert(sizeof(WIFI_SSID) <= sizeof(credentials.ssid), "SSID too long");
         static_assert(sizeof(WIFI_PASSWORD) <= sizeof(credentials.password), "Password too long");
         std::memcpy(credentials.ssid, WIFI_SSID, sizeof(WIFI_SSID));
@@ -98,6 +98,8 @@ bool WiFiManager::init()
         ESP_LOGI(TAG, "DEVELOPMENT: seeded Wi-Fi credentials into NVS");
         error = readCredentials(credentials);
     }
+#else
+    (void)allow_development_seed;
 #endif
     if (error == ESP_ERR_NVS_NOT_FOUND) {
         state_.store(WiFiState::UNPROVISIONED);
@@ -148,6 +150,7 @@ bool WiFiManager::init()
     }
 
     wifi_config_t station_config{};
+    SensitiveScope config_scope(&station_config, sizeof(station_config));
     // ESP-IDF fields are length-bounded byte arrays; a maximum-length SSID or
     // raw 64-hex PSK fills its field. Our source strings always have a terminator.
     std::memcpy(station_config.sta.ssid, credentials.ssid, std::strlen(credentials.ssid));
@@ -179,9 +182,9 @@ bool WiFiManager::start()
     if (running_.exchange(true)) {
         return true;
     }
-    state_.store(station_configured_ ? WiFiState::CONNECTING : WiFiState::UNPROVISIONED);
+    setState(station_configured_ ? WiFiState::CONNECTING : WiFiState::UNPROVISIONED);
     if (!check(esp_wifi_start(), "Start Wi-Fi")) {
-        state_.store(WiFiState::CONNECTION_FAILED);
+        setState(WiFiState::CONNECTION_FAILED);
         running_.store(false);
         return false;
     }
@@ -202,9 +205,9 @@ void WiFiManager::connect()
 {
     if (running_.load() && station_configured_ && !scan_active_.load()) {
         ESP_LOGI(TAG, "Attempting connection");
-        state_.store(WiFiState::CONNECTING);
+        setState(WiFiState::CONNECTING);
         if (!check(esp_wifi_connect(), "Connect Wi-Fi")) {
-            state_.store(WiFiState::CONNECTION_FAILED);
+            setState(WiFiState::CONNECTION_FAILED);
         }
     }
 }
@@ -228,7 +231,7 @@ void WiFiManager::eventHandler(void* arg, esp_event_base_t event_base,
             self->connect();
         } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
             self->ipv4_.store(0);
-            self->state_.store(WiFiState::CONNECTION_FAILED);
+            self->setState(WiFiState::CONNECTION_FAILED);
             const auto* event = static_cast<const wifi_event_sta_disconnected_t*>(event_data);
             ESP_LOGW(TAG, "Wi-Fi disconnected (reason %u)",
                      event ? static_cast<unsigned>(event->reason) : 0U);
@@ -238,20 +241,20 @@ void WiFiManager::eventHandler(void* arg, esp_event_base_t event_base,
             }
         } else if (event_id == WIFI_EVENT_STA_STOP) {
             self->ipv4_.store(0);
-            self->state_.store(WiFiState::CONNECTION_FAILED);
+            self->setState(WiFiState::CONNECTION_FAILED);
         }
     } else if (event_base == IP_EVENT) {
         if (event_id == IP_EVENT_STA_GOT_IP && self->running_.load()) {
             const auto* event = static_cast<const ip_event_got_ip_t*>(event_data);
             self->ipv4_.store(event ? event->ip_info.ip.addr : 0);
-            self->state_.store(WiFiState::CONNECTED);
+            self->setState(WiFiState::CONNECTED);
             ESP_LOGI(TAG, "Wi-Fi connected");
             if (event) {
                 ESP_LOGI(TAG, "Obtained IP address: " IPSTR, IP2STR(&event->ip_info.ip));
             }
         } else if (event_id == IP_EVENT_STA_LOST_IP) {
             self->ipv4_.store(0);
-            self->state_.store(WiFiState::CONNECTION_FAILED);
+            self->setState(WiFiState::CONNECTION_FAILED);
             ESP_LOGW(TAG, "Station lost IP address");
         }
     }
@@ -262,4 +265,26 @@ void WiFiManager::getIPv4(std::uint8_t out[4]) const
     const std::uint32_t address = isConnected() ? ipv4_.load() : 0;
     std::memcpy(out, &address, sizeof(address));
     if (!isConnected()) std::memset(out, 0, sizeof(address));
+}
+
+bool WiFiManager::applyStoredCredentials()
+{
+    cleanup();
+    return init(false) && start();
+}
+
+bool WiFiManager::setStateListener(StateListener listener, void* context)
+{
+    // Called once by BLE startup, not concurrently by competing registrants.
+    if (!listener || state_listener_.load()) return false;
+    state_context_ = context;
+    state_listener_.store(listener);
+    return true;
+}
+
+void WiFiManager::setState(WiFiState state)
+{
+    if (state_.exchange(state) == state) return;
+    const auto listener = state_listener_.load();
+    if (listener) listener(state_context_, state);
 }

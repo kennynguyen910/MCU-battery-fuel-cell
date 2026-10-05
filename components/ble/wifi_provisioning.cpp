@@ -67,6 +67,8 @@ bool WiFiProvisioning::start()
     if (ble_npl_callout_init(&send_callout_, nimble_port_get_dflt_eventq(), sendNext, this) != 0)
         return false;
     callout_initialized_ = true;
+    credential_runtime_ready_ = initializeCredentials();
+    if (!credential_runtime_ready_) ESP_LOGE(TAG, "Credential provisioning unavailable");
     task_ = xTaskCreateStatic(worker, "wifi_provision", STACK_BYTES, this, 2, stack_, &task_storage_);
     return task_ != nullptr;
 }
@@ -74,12 +76,14 @@ bool WiFiProvisioning::start()
 void WiFiProvisioning::reset()
 {
     ++session_; // Invalidate old work even if a connection handle is reused.
+    observer_session_.store(session_);
+    if (state_ == ProvisioningState::RECEIVING_CREDENTIALS) discardCredentials();
     connection_ = BLE_HS_CONN_HANDLE_NONE;
     control_subscribed_ = data_subscribed_ = status_subscribed_ = false;
     if (callout_initialized_) ble_npl_callout_stop(&send_callout_);
     if (delivering_) {
         delivering_ = false;
-        busy_ = false;
+        state_ = ProvisioningState::IDLE;
     }
     // A worker still scanning owns results_ until scanReady; let it finish and
     // discard there. Disconnect never waits for the scan or touches acquisition.
@@ -113,6 +117,8 @@ void WiFiProvisioning::encodeStatus(std::uint8_t (&out)[STATUS_SIZE])
     }
     if (wifi_.credentialsStored()) out[2] |= FLAG_STORED;
     if (scanning_.load()) out[2] |= FLAG_SCANNING;
+    if (state_ == ProvisioningState::RECEIVING_CREDENTIALS ||
+        state_ == ProvisioningState::APPLYING_CREDENTIALS) out[2] |= FLAG_TRANSACTION;
     ble_gap_conn_desc connection{};
     if (connection_ != BLE_HS_CONN_HANDLE_NONE &&
         ble_gap_conn_find(connection_, &connection) == 0 && connection.sec_state.encrypted)
@@ -166,8 +172,8 @@ int WiFiProvisioning::access(std::uint16_t, std::uint16_t handle,
         return os_mbuf_append(ctxt->om, bytes, sizeof(bytes)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
     if (handle == self.data_handle_) {
-        self.last_error_ = INVALID_COMMAND;
-        return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Credentials are not implemented.
+        return ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR ?
+            self.credentialData(ctxt) : BLE_ATT_ERR_UNLIKELY;
     }
     if (handle != self.control_handle_ || ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR)
         return BLE_ATT_ERR_UNLIKELY;
@@ -195,7 +201,8 @@ int WiFiProvisioning::access(std::uint16_t, std::uint16_t handle,
         self.notifyStatus();
         return 0;
     }
-    if (self.busy_) {
+    if (header[1] != START_SCAN) return self.credentialControl(header);
+    if (self.state_ != ProvisioningState::IDLE) {
         self.fail(header[2], START_SCAN, OPERATION_BUSY);
         return 0;
     }
@@ -208,7 +215,8 @@ int WiFiProvisioning::access(std::uint16_t, std::uint16_t handle,
         self.last_error_ = INTERNAL_ERROR;
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
-    self.busy_ = true;
+    self.state_ = ProvisioningState::SCANNING;
+    self.work_opcode_ = START_SCAN;
     self.scanning_.store(true);
     self.transaction_ = header[2];
     self.request_session_ = self.session_;
@@ -222,8 +230,12 @@ void WiFiProvisioning::worker(void* arg)
     auto& self = *static_cast<WiFiProvisioning*>(arg);
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        self.scan_error_ = self.wifi_.scanNetworks(self.results_, self.result_count_, self.found_);
-        self.scanning_.store(false);
+        if (self.work_opcode_ == START_SCAN) {
+            self.scan_error_ = self.wifi_.scanNetworks(self.results_, self.result_count_, self.found_);
+            self.scanning_.store(false);
+        } else {
+            self.runCredentialWork();
+        }
         ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &self.ready_event_);
     }
 }
@@ -231,8 +243,12 @@ void WiFiProvisioning::worker(void* arg)
 void WiFiProvisioning::scanReady(ble_npl_event* event)
 {
     auto& self = *static_cast<WiFiProvisioning*>(ble_npl_event_get_arg(event));
+    if (self.work_opcode_ != START_SCAN) {
+        self.credentialWorkReady();
+        return;
+    }
     if (self.request_session_ != self.session_ || self.connection_ == BLE_HS_CONN_HANDLE_NONE) {
-        self.busy_ = false;
+        self.state_ = ProvisioningState::IDLE;
         return;
     }
     self.reported_ = self.result_index_ = self.offset_ = 0;
@@ -240,7 +256,7 @@ void WiFiProvisioning::scanReady(ble_npl_event* event)
     if (self.scan_error_ != ESP_OK) {
         self.fail(self.transaction_, START_SCAN,
             self.scan_error_ == ESP_ERR_WIFI_STATE ? OPERATION_BUSY : SCAN_FAILED);
-        self.busy_ = false;
+        self.state_ = ProvisioningState::IDLE;
         self.notifyStatus();
         return;
     }
@@ -263,7 +279,8 @@ void WiFiProvisioning::nextFragment()
 {
     if (!delivering_) return;
     if (request_session_ != session_ || connection_ == BLE_HS_CONN_HANDLE_NONE) {
-        delivering_ = busy_ = false;
+        delivering_ = false;
+        state_ = ProvisioningState::IDLE;
         return;
     }
     if (result_index_ >= result_count_) {
@@ -308,6 +325,7 @@ void WiFiProvisioning::finish()
         ESP_LOGW(TAG, "SCAN_COMPLETE notification failed");
     }
     ESP_LOGI(TAG, "Wi-Fi scan complete: %u APs found, %u reported", found_, reported_);
-    delivering_ = busy_ = false;
+    delivering_ = false;
+    state_ = ProvisioningState::IDLE;
     notifyStatus();
 }

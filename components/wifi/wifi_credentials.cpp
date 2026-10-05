@@ -1,4 +1,5 @@
 #include "wifi_manager.hpp"
+#include "secure_zero.hpp"
 
 #include <cstring>
 #include <initializer_list>
@@ -50,6 +51,7 @@ esp_err_t WiFiManager::readCredentials(WiFiCredentials& credentials) const
     esp_err_t error = nvs_open(NAMESPACE, NVS_READONLY, &handle.value);
     if (error != ESP_OK) return error;
     WiFiCredentials stored{};
+    SensitiveScope stored_scope(&stored, sizeof(stored));
     size_t ssid_size = sizeof(stored.ssid);
     size_t password_size = sizeof(stored.password);
     const esp_err_t ssid_error = nvs_get_str(handle.value, SSID_KEY, stored.ssid, &ssid_size);
@@ -74,6 +76,7 @@ bool WiFiManager::loadCredentials(WiFiCredentials& credentials) const
 bool WiFiManager::hasStoredCredentials() const
 {
     WiFiCredentials credentials{};
+    SensitiveScope credentials_scope(&credentials, sizeof(credentials));
     return loadCredentials(credentials);
 }
 
@@ -94,7 +97,7 @@ bool WiFiManager::saveCredentials(const WiFiCredentials& credentials)
         !check(nvs_set_str(handle.value, SSID_KEY, credentials.ssid), "Write SSID") ||
         !check(nvs_commit(handle.value), "Commit credentials")) return false;
     credentials_stored_.store(true);
-    ESP_LOGI(TAG, "Wi-Fi credentials saved; reboot to apply");
+    ESP_LOGI(TAG, "Wi-Fi credentials saved");
     return true;
 }
 
@@ -110,10 +113,13 @@ bool WiFiManager::clearCredentials()
     for (const char* key : {SSID_KEY, PASSWORD_KEY}) {
         const esp_err_t error = nvs_erase_key(handle.value, key);
         if (error != ESP_ERR_NVS_NOT_FOUND && !check(error, "Erase credential key")) return false;
+        // Once either required key is absent, the saved pair is unusable even
+        // if a later erase/commit fails. Keep the status cache conservative.
+        credentials_stored_.store(false);
     }
     if (!check(nvs_commit(handle.value), "Commit credential removal")) return false;
     credentials_stored_.store(false);
-    state_.store(WiFiState::UNPROVISIONED);
+    setState(WiFiState::UNPROVISIONED);
     ESP_LOGI(TAG, "Wi-Fi credentials cleared (UNPROVISIONED)");
     return true;
 }

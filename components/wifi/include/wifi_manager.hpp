@@ -40,8 +40,14 @@ public:
     WiFiManager(const WiFiManager&) = delete;
     WiFiManager& operator=(const WiFiManager&) = delete;
 
-    bool init();
+    bool init(bool allow_development_seed = true);
     bool start();
+    // Worker/control task only. Reload NVS without development seeding, restart
+    // station, and initiate connection (no DHCP wait). No concurrent scans.
+    bool applyStoredCredentials();
+    using StateListener = void (*)(void*, WiFiState);
+    // Register once, firmware lifetime; callback must be bounded/nonblocking.
+    bool setStateListener(StateListener listener, void* context);
     bool isConnected() const;
     WiFiState getState() const;
     bool credentialsStored() const { return credentials_stored_.load(); }
@@ -57,7 +63,7 @@ public:
     // Missing credentials return false, with a zeroed output; errors are logged.
     bool loadCredentials(WiFiCredentials& credentials) const;
     bool hasStoredCredentials() const;
-    // Persists only; does not change an active connection. Reboot to apply.
+    // Persists only; use applyStoredCredentials() or reboot to apply.
     bool saveCredentials(const WiFiCredentials& credentials);
     // Stops Wi-Fi and removes only our credential keys. Disable development
     // seeding before clearing, otherwise the next init() will seed again.
@@ -66,11 +72,14 @@ public:
 private:
     static void eventHandler(void* arg, esp_event_base_t event_base,
                              int32_t event_id, void* event_data);
+    void setState(WiFiState state);
     void connect();
     void cleanup();
 
     esp_err_t readCredentials(WiFiCredentials& credentials) const;
 
+    std::atomic<StateListener> state_listener_{nullptr};
+    void* state_context_ = nullptr;
     std::atomic<WiFiState> state_{WiFiState::UNPROVISIONED};
     std::atomic<bool> credentials_stored_{false};
     std::atomic<std::uint32_t> ipv4_{0};
