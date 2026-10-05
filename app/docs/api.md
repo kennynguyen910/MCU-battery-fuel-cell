@@ -1,11 +1,13 @@
 # API reference
 
 Base URL: http://localhost:3001/api. POST uses application/json.
-The body limit is 2 MB. When APP_USERNAME and APP_PASSWORD are both set, all
-data routes require `Authorization: Bearer <token>`. POST /auth/login accepts
+The body limit is 2 MB. The PostgreSQL-backed app requires login for all
+data routes using `Authorization: Bearer <token>`. POST /auth/login accepts
 `{"username":"...","password":"..."}` and returns a token valid for eight
 hours or until API restart/logout. POST /auth/logout revokes it; GET /auth/status
-reports whether login is configured. This is a single-user bench account.
+reports whether login is configured and the `sessionOwnership` capability. Login also returns the verified `username`
+and `isAdmin`; tokens carry their identity on the server. The optional temporary
+memory demo retains its fixed bench login.
 Text is trimmed server-side. Device names/serials are limited to 100 characters, session
 names to 120, and notes to 2,000.
 
@@ -23,6 +25,15 @@ names to 120, and notes to 2,000.
 | GET | /device-input | Latest CRC-validated ESP32 UDP frame and receiver status |
 | GET | /device-sources | Discovered UDP senders, live/offline state, paired device ID |
 | POST | /device-sources/pair | Pair a currently live sender from `{ "sourceIp": "..." }` |
+
+With login enabled, session lists and all session-specific routes are scoped
+to the token's username. The exact `capstone_admin` account can access every
+session, including unassigned legacy sessions. Session creation always sets
+`ownerUsername` from the token; body/query/header ownership or role fields cannot
+override it. Session responses include `ownerUsername` (null for legacy rows).
+Foreign session IDs return 404 for reads, uploads and deletion. Device discovery,
+pairing and live transport endpoints remain shared bench infrastructure.
+See [user accounts and upgrade steps](users.md).
 | GET | /simulation | Demo only: sender counters, receiver metrics, and active scenario |
 | POST | /simulation | Demo only: choose `{ "scenario": "baseline" }` |
 

@@ -66,6 +66,7 @@ try {
   // Do not silently reuse an old API that is still running without login.
   const auth = await health(`${apiUrl}/api/auth/status`);
   if (!auth?.enabled || auth.demo) throw new Error('Close the old API window and run Start_Capstone.cmd again to apply login settings.');
+  if (!auth.sessionOwnership) throw new Error('An older API is running. Close its launcher/API and run Start_Capstone.cmd again to activate session ownership.');
   const response = await fetch(`${apiUrl}/api/auth/login`, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({username: process.env.APP_USERNAME, password: process.env.APP_PASSWORD}),

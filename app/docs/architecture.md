@@ -151,6 +151,6 @@ router queues, or physical-board performance. See the
 [demo guide](network-demo.md) for the presentation and physical-bench boundary.
 
 Production plan: Vercel serves the Flutter web build; AWS runs Express and
-Postgres. Current data is local. Persistent user accounts, TLS deployment,
+Postgres. Current data is local. TLS deployment,
 cloud resources, and cryptographic device identity remain required before
 sharing it publicly.

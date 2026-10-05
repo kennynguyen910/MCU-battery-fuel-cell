@@ -93,6 +93,7 @@ class _DashboardState extends State<Dashboard> {
   // `selected` is the active session UUID; `lastFrame` suppresses duplicates.
   // `lastDeviceCursor` is the buffered-stream cursor for UDP device capture.
   String? selected, lastFrame;
+  String? captureOwner;
   int? lastDeviceCursor;
   String? deviceStreamId;
   int missedBufferedFrames = 0;
@@ -230,7 +231,8 @@ class _DashboardState extends State<Dashboard> {
               // Only a new frame is uploaded. Re-reading the same device value
               // must not generate a new timestamp or duplicate measurements.
               await log.append(
-                  api.baseUrl, sessionId, Map<String, dynamic>.from(frame));
+                  api.baseUrl, sessionId, Map<String, dynamic>.from(frame),
+                  ownerUsername: captureOwner);
               if (!mounted) return;
               lastFrame = frame['frameId'] as String;
             }
@@ -241,7 +243,7 @@ class _DashboardState extends State<Dashboard> {
           missedBufferedFrames = buffered.missed;
           captureSummary = invalidVoltage
               ? 'Device frame outside ±5 V or incomplete; shown but not uploaded.'
-              : 'Uploaded $uploaded frame(s) in this app run. Pending: ${log.pending}. Buffer losses: $missedBufferedFrames.';
+              : 'Uploaded $uploaded frame(s) in this app run. Pending: ${log.visiblePending(api)}. Buffer losses: $missedBufferedFrames.';
         } else if (selected != null) {
           // Remember both values so an older response cannot overwrite a newer
           // session selection or time-filter request.
@@ -270,7 +272,7 @@ class _DashboardState extends State<Dashboard> {
           if (error is ApiException && error.statusCode == 401) {
             loginRequired = true;
             capturing = false;
-            api.token = null;
+            api.clearAuthentication();
             live = null;
             rows = [];
             notice = 'Please log in to continue. Capture is stopped.';
@@ -289,7 +291,7 @@ class _DashboardState extends State<Dashboard> {
         loginRequired = true;
         capturing = false;
         buffered.stop();
-        api.token = null;
+        api.clearAuthentication();
         notice = 'Please log in to continue. Saved frames remain pending.';
       } else if (!buffered.active && capturing && deviceMode) {
         capturing = false;
@@ -525,6 +527,7 @@ class _DashboardState extends State<Dashboard> {
     setState(() => action = true);
     try {
       // Start from the next published frame, never a stale pre-session value.
+      final owner = api.username;
       dynamic baseline;
       if (deviceMode) {
         final source = await api.request('/device-input?sourceIp=$deviceIp');
@@ -543,7 +546,13 @@ class _DashboardState extends State<Dashboard> {
         baseline = await api.request('/test-input');
       }
       if (!mounted) return;
+      if (api.username != owner ||
+          (api.authenticationRequired && !api.signedIn)) {
+        buffered.stop();
+        throw StateError('Sign in before starting capture.');
+      }
       setState(() {
+        captureOwner = owner;
         lastFrame = baseline?['frameId'] as String?;
         capturing = true;
         notice = 'Capture started. New readings are logged before upload.';
@@ -564,6 +573,20 @@ class _DashboardState extends State<Dashboard> {
       setState(() {
         loginRequired = false;
         notice = '';
+        // Polls and cached history from the previous account must not survive a
+        // successful account switch, even when the next network read fails.
+        selected = null;
+        sessions = [];
+        rows = [];
+        live = null;
+        lastFrame = null;
+        storedMeasurementCount = 0;
+        historyTruncated = false;
+        historyQuery = '';
+        uploaded = 0;
+        captureSummary = '';
+        receiveProblem = null;
+        uploadProblem = null;
       });
     } catch (error) {
       if (mounted) setState(() => notice = 'Login failed: $error');
@@ -574,11 +597,21 @@ class _DashboardState extends State<Dashboard> {
   }
 
   Future<void> signOut() async {
-    setState(() => action = true);
+    setState(() {
+      action = true;
+      capturing = false;
+      buffered.stop();
+    });
     try {
+      // Settle saves and acknowledgements under their original identity before
+      // another account can log in; pending data is retained for its owner.
+      while ((busy || uploading) && mounted) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      await buffered.idle;
       await api.logout();
     } catch (_) {
-      api.token = null;
+      api.clearAuthentication();
     }
     if (mounted)
       setState(() {
@@ -630,7 +663,7 @@ class _DashboardState extends State<Dashboard> {
     }
     setState(() {
       api.baseUrl = address.text.trim().replaceFirst(RegExp(r'/$'), '');
-      api.token = null;
+      api.clearAuthentication(newServer: true);
       selected = null;
       rows = [];
       sessions = [];
@@ -810,6 +843,9 @@ class _DashboardState extends State<Dashboard> {
                   Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Text(notice)),
+                if (api.signedIn)
+                  Text(
+                      'Signed in as ${api.username} · ${api.isAdmin ? 'All sessions' : 'Your sessions'}'),
                 if (pendingDeletion != null)
                   TextButton.icon(
                       onPressed: action ? null : retryDeletionCleanup,
@@ -919,7 +955,7 @@ class _DashboardState extends State<Dashboard> {
                               .map((s) => DropdownMenuItem<String>(
                                   value: s['sessionId'] as String,
                                   child: Text(
-                                      '${s['sessionName']} — ${s['startTime']}',
+                                      '${s['sessionName']} — ${s['startTime']}${api.isAdmin ? ' · ${s['ownerUsername'] ?? 'Legacy / unassigned'}' : ''}',
                                       overflow: TextOverflow.ellipsis)))
                               .toList(),
                           onChanged: !ready || capturing
@@ -999,14 +1035,13 @@ class _DashboardState extends State<Dashboard> {
                             ? null
                             : () => showDialog<void>(
                                 context: context,
-                                builder: (context) =>
-                                    AlertDialog(
+                                builder: (context) => AlertDialog(
                                         title: const Text('Local JSON log'),
                                         content: SizedBox(
                                             width: 620,
                                             child: SingleChildScrollView(
-                                                child:
-                                                    SelectableText(log.json))),
+                                                child: SelectableText(
+                                                    log.visibleJson(api)))),
                                         actions: [
                                           TextButton(
                                               onPressed: () =>
@@ -1014,7 +1049,7 @@ class _DashboardState extends State<Dashboard> {
                                               child: const Text('Close'))
                                         ])),
                         child: Text(
-                            'View local log (${log.entries.length} frames; ${log.pending} pending)')),
+                            'View local log (${log.visibleEntries(api).length} frames; ${log.visiblePending(api)} pending)')),
                   ]),
             if (role == AppRole.input)
               DemoSection(

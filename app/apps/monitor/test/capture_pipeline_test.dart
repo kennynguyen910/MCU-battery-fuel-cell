@@ -140,13 +140,17 @@ void main() {
       final journal = FileCaptureJournal(() async => directory);
       final log = CaptureLog(read: journal.read, operation: journal.append);
       await log.append(Api.defaultUrl, 'remove', frame(1));
-      await log.append(Api.defaultUrl, 'keep', frame(2));
-      await log.append('http://another-api', 'remove', frame(3));
+      await log.append(Api.defaultUrl, 'keep', frame(2),
+          ownerUsername: 'KennyNguyen');
+      await log.append('http://another-api', 'remove', frame(3),
+          ownerUsername: 'WillAdcox');
       await log.discardSession(Api.defaultUrl, 'remove');
       final restored =
           CaptureLog(read: journal.read, operation: journal.append);
       await restored.load();
       expect(restored.entries.map((e) => e['frameId']), ['2', '3']);
+      expect(restored.entries.map((e) => e['ownerUsername']),
+          ['KennyNguyen', 'WillAdcox']);
       expect(restored.pending, 2);
     } finally {
       await directory.delete(recursive: true);

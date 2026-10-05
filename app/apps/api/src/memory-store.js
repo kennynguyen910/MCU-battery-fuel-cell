@@ -30,14 +30,15 @@ export class MemoryStore {
   }
 
   // Filtering compares instants, while sorting keeps newest sessions first.
-  async listSessions({ from, to } = {}) {
+  async listSessions({ from, to, ownerUsername } = {}) {
     return this.sessions.filter((session) => {
-      return (!from || compareTimes(session.startTime, from) >= 0) && (!to || compareTimes(session.startTime, to) <= 0);
+      return (ownerUsername === undefined || session.ownerUsername === ownerUsername) &&
+        (!from || compareTimes(session.startTime, from) >= 0) && (!to || compareTimes(session.startTime, to) <= 0);
     }).sort((a, b) => compareTimes(b.startTime, a.startTime));
   }
 
   // Copy the device display fields into the response just like the SQL join.
-  async createSession({ deviceId, sessionName, startTime, notes = "" }) {
+  async createSession({ deviceId, sessionName, startTime, notes = "", ownerUsername = null }) {
     const device = this.devices.find((item) => item.deviceId === deviceId);
     if (!device) {
       const error = new Error("deviceId was not found");
@@ -50,15 +51,16 @@ export class MemoryStore {
     const session = {
       sessionId: randomUUID(), deviceId, deviceName: device.deviceName,
       serialNumber: device.serialNumber, sessionName, startTime,
-      endTime: null, notes,
+      endTime: null, notes, ownerUsername,
     };
     this.sessions.push(session);
     this.measurements.set(session.sessionId, []);
     return session;
   }
 
-  async deleteSession(sessionId) {
-    const index = this.sessions.findIndex(item => item.sessionId === sessionId);
+  async deleteSession(sessionId, { ownerUsername } = {}) {
+    const index = this.sessions.findIndex(item => item.sessionId === sessionId &&
+      (ownerUsername === undefined || item.ownerUsername === ownerUsername));
     if (index < 0) return false;
     this.sessions.splice(index, 1);
     this.measurements.delete(sessionId);
@@ -66,8 +68,9 @@ export class MemoryStore {
   }
 
   // Update an existing time/channel pair rather than adding duplicate rows.
-  async addSamples(sessionId, samples) {
-    const session = this.sessions.find((item) => item.sessionId === sessionId);
+  async addSamples(sessionId, samples, { ownerUsername } = {}) {
+    const session = this.sessions.find((item) => item.sessionId === sessionId &&
+      (ownerUsername === undefined || item.ownerUsername === ownerUsername));
     if (!session) {
       const error = new Error("sessionId was not found");
       error.code = '23503';
@@ -95,8 +98,9 @@ export class MemoryStore {
   }
 
   // Return a new object so callers cannot accidentally replace stored metadata.
-  async getSession(sessionId, { from, to, metadataOnly = false, recent = false } = {}) {
-    const session = this.sessions.find((item) => item.sessionId === sessionId);
+  async getSession(sessionId, { from, to, metadataOnly = false, recent = false, ownerUsername } = {}) {
+    const session = this.sessions.find((item) => item.sessionId === sessionId &&
+      (ownerUsername === undefined || item.ownerUsername === ownerUsername));
     if (!session) return null;
     if (metadataOnly) return {...session};
     const measurements = (this.measurements.get(sessionId) || []).filter((row) => {

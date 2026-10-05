@@ -492,7 +492,7 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
             Text(
                 'Received: ${_capture.received} · Invalid: ${_capture.invalid + _usbParser.invalid} · Duplicates: ${_capture.duplicates}'),
             Text(
-                'Uploaded: ${_capture.uploaded} · Saved pending: ${_log.pending} · Waiting to save: ${_capture.queued}'),
+                'Uploaded: ${_capture.uploaded} · Saved pending: ${_log.visiblePending(widget.api)} · Waiting to save: ${_capture.queued}'),
             if (_capture.overflow > 0)
               const Text(
                   'Capture stopped: receive buffer full. Restore uploads before restarting.'),

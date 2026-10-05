@@ -16,7 +16,8 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
   app.use('/api', (_request, response, next) => { response.set('Cache-Control', 'no-store'); next(); });
-  app.get('/api/auth/status', (_request, response) => response.json({ enabled: Boolean(auth), demo }));
+  app.get('/api/auth/status', (_request, response) => response.json({
+    enabled: Boolean(auth), demo, sessionOwnership: Boolean(auth) }));
   app.post('/api/auth/login', async (request, response) => {
     if (!auth) return response.status(503).json({ error: 'Login is not configured' });
     const { username, password } = request.body || {};
@@ -31,8 +32,12 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
   app.use('/api', (request, response, next) => {
     if (!auth) return next();
     const token = request.get('Authorization')?.match(/^Bearer (\S+)$/)?.[1];
-    if (!auth.valid(token)) return response.status(401).json({ error: 'Login required' });
+    const principal = auth.principal(token);
+    if (!principal) return response.status(401).json({ error: 'Login required' });
     request.authToken = token;
+    request.principal = principal;
+    // Only the server-resolved identity can set scope; client fields are ignored.
+    request.sessionScope = principal.isAdmin ? {} : { ownerUsername: principal.username };
     next();
   });
   app.post('/api/auth/logout', (request, response) => {
@@ -154,16 +159,18 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
   });
   // Session-list filters apply to session start time, not individual samples.
   app.get("/api/sessions", async (request, response, next) => {
-    try { response.json(await store.listSessions(validateRange(request.query))); } catch (error) { next(error); }
+    try { response.json(await store.listSessions({...validateRange(request.query), ...request.sessionScope})); } catch (error) { next(error); }
   });
   app.post("/api/sessions", async (request, response, next) => {
-    try { response.status(201).json(await store.createSession(validateSession(request.body))); } catch (error) { next(error); }
+    try { response.status(201).json(await store.createSession({ ...validateSession(request.body),
+      ownerUsername: request.principal?.username ?? null })); } catch (error) { next(error); }
   });
   // Detail filters apply to measurement timestamps and are inclusive.
   app.get("/api/sessions/:sessionId", async (request, response, next) => {
     try {
       const sessionId = validateUuid(request.params.sessionId, 'sessionId');
-      const session = await store.getSession(sessionId, {...validateRange(request.query), recent: request.query.recent === '1'});
+      const session = await store.getSession(sessionId, {...validateRange(request.query),
+        recent: request.query.recent === '1', ...request.sessionScope});
       if (!session) return response.status(404).json({ error: "Session not found" });
       response.json(session);
     } catch (error) { next(error); }
@@ -172,7 +179,7 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
   app.delete("/api/sessions/:sessionId", async (request, response, next) => {
     try {
       const sessionId = validateUuid(request.params.sessionId, 'sessionId');
-      if (!await store.deleteSession(sessionId)) {
+      if (!await store.deleteSession(sessionId, request.sessionScope)) {
         return response.status(404).json({ error: "Session not found" });
       }
       response.status(204).end();
@@ -183,10 +190,10 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
     try {
       const sessionId = validateUuid(request.params.sessionId, 'sessionId');
       const samples = validateSamples(request.body?.samples);
-      if (!await store.getSession(sessionId, {metadataOnly: true})) {
+      if (!await store.getSession(sessionId, {metadataOnly: true, ...request.sessionScope})) {
         return response.status(404).json({ error: "Session not found" });
       }
-      response.status(201).json(await store.addSamples(sessionId, samples));
+      response.status(201).json(await store.addSamples(sessionId, samples, request.sessionScope));
     } catch (error) {
       // Deletion can win after the metadata read but before the upload commits.
       if (error.code === '23503') return response.status(404).json({ error: "Session not found" });

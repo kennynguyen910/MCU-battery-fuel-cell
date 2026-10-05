@@ -15,7 +15,7 @@ const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 // Shared projection keeps list/detail field names consistent for Flutter.
 const sessionSelect = `
   SELECT s.session_id AS "sessionId", s.device_id AS "deviceId",
-    s.session_name AS "sessionName",
+    s.session_name AS "sessionName", s.owner_username AS "ownerUsername",
     to_char(s.start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startTime",
     to_char(s.end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "endTime", s.notes, d.device_name AS "deviceName",
     d.serial_number AS "serialNumber"
@@ -53,36 +53,50 @@ export class PostgresStore {
   }
 
   // Build optional WHERE clauses while keeping every value parameterized.
-  async listSessions({ from, to } = {}) {
+  async listSessions({ from, to, ownerUsername } = {}) {
     const values = [];
     const clauses = [];
     if (from) { values.push(from); clauses.push(`s.start_time >= $${values.length}`); }
     if (to) { values.push(to); clauses.push(`s.start_time <= $${values.length}`); }
+    if (ownerUsername !== undefined) { values.push(ownerUsername); clauses.push(`s.owner_username = $${values.length}`); }
     const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     const { rows } = await this.pool.query(`${sessionSelect}${where} ORDER BY s.start_time DESC`, values);
     return rows;
   }
 
   // Return the complete session shape so callers do not need a second contract.
-  async createSession({ deviceId, sessionName, startTime, notes = "" }) {
+  async createSession({ deviceId, sessionName, startTime, notes = "", ownerUsername = null }) {
     if (!deviceId || !sessionName || Number.isNaN(new Date(startTime).valueOf())) throw new Error("deviceId, sessionName, and a valid startTime are required");
-    const { rows } = await this.pool.query(`INSERT INTO test_session (device_id, session_name, start_time, notes) VALUES ($1, $2, $3, $4) RETURNING session_id AS "sessionId"`, [deviceId, sessionName, startTime, notes]);
+    const { rows } = await this.pool.query(`INSERT INTO test_session (device_id, session_name, start_time, notes, owner_username) VALUES ($1, $2, $3, $4, $5) RETURNING session_id AS "sessionId"`, [deviceId, sessionName, startTime, notes, ownerUsername]);
     return (await this.getSession(rows[0].sessionId));
   }
 
   // The existing measurement foreign key cascades within this one statement.
   // The device and its other sessions remain intact; late uploads cannot recreate it.
-  async deleteSession(sessionId) {
+  async deleteSession(sessionId, { ownerUsername } = {}) {
     const result = await this.pool.query(
-      'DELETE FROM test_session WHERE session_id = $1 RETURNING session_id', [sessionId]);
+      `DELETE FROM test_session WHERE session_id = $1
+        ${ownerUsername === undefined ? '' : 'AND owner_username = $2'} RETURNING session_id`,
+      ownerUsername === undefined ? [sessionId] : [sessionId, ownerUsername]);
     return result.rowCount === 1;
   }
 
   // A frame is atomic: either all 16 rows commit, or none of them do.
-  async addSamples(sessionId, samples) {
+  async addSamples(sessionId, samples, { ownerUsername } = {}) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      // Authorize inside the write transaction. The row lock also ensures
+      // deletion cannot race this batch. KEY SHARE permits parallel bulk inserts;
+      // the scoped metadata update below rechecks ownership before commit.
+      const allowed = await client.query(`SELECT session_id FROM test_session WHERE session_id = $1
+        ${ownerUsername === undefined ? '' : 'AND owner_username = $2'} FOR KEY SHARE`,
+        ownerUsername === undefined ? [sessionId] : [sessionId, ownerUsername]);
+      if (!allowed.rowCount) {
+        const error = new Error('Session not found');
+        error.code = '23503';
+        throw error;
+      }
       // Collapse repeated timestamps as the old ordered upserts did, then send
       // the whole batch in one parameterized statement (16,000 rows at 1 kHz).
       const unique = new Map(samples.map(sample => [sample.recordedAt, sample]));
@@ -98,7 +112,14 @@ export class PostgresStore {
       // Reduce across the batch because clients are not required to sort samples.
       const latestRecordedAt = samples.reduce((latest, sample) =>
         compareTimes(sample.recordedAt, latest) > 0 ? sample.recordedAt : latest, samples[0].recordedAt);
-      await client.query(`UPDATE test_session SET end_time = GREATEST(COALESCE(end_time, $2), $2) WHERE session_id = $1`, [sessionId, latestRecordedAt]);
+      const updated = await client.query(`UPDATE test_session SET end_time = GREATEST(COALESCE(end_time, $2), $2)
+        WHERE session_id = $1 ${ownerUsername === undefined ? '' : 'AND owner_username = $3'}`,
+        ownerUsername === undefined ? [sessionId, latestRecordedAt] : [sessionId, latestRecordedAt, ownerUsername]);
+      if (!updated.rowCount) {
+        const error = new Error('Session not found');
+        error.code = '23503';
+        throw error;
+      }
       await client.query("COMMIT");
       return { insertedMeasurements: samples.length * 16 };
     } catch (error) {
@@ -110,8 +131,10 @@ export class PostgresStore {
   }
 
   // Session metadata and measurements are returned together for the MVP viewer.
-  async getSession(sessionId, { from, to, metadataOnly = false, recent = false } = {}) {
-    const sessionResult = await this.pool.query(`${sessionSelect} WHERE s.session_id = $1`, [sessionId]);
+  async getSession(sessionId, { from, to, metadataOnly = false, recent = false, ownerUsername } = {}) {
+    const sessionResult = await this.pool.query(`${sessionSelect} WHERE s.session_id = $1
+      ${ownerUsername === undefined ? '' : 'AND s.owner_username = $2'}`,
+      ownerUsername === undefined ? [sessionId] : [sessionId, ownerUsername]);
     if (!sessionResult.rows[0]) return null;
     if (metadataOnly) return sessionResult.rows[0];
     const values = [sessionId];

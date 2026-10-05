@@ -148,6 +148,11 @@ session, original timestamp, and upload status. Failed uploads retry automatical
 for the currently connected API. Do not clear app/browser storage before pending
 uploads finish.
 
+Saved sessions are private to their creator. `capstone_admin` can access all
+sessions; preserved older sessions are admin-only. The collector filters its
+local log and pending uploads by signed-in account as well. See
+[user accounts and activation steps](docs/users.md) for the additive upgrade.
+
 To organize saved sessions, select one in the collector or web history and
 choose **Delete session**. Confirming permanently removes the session and its
 saved readings. Stop any collectors using it first. Deletion is disabled during

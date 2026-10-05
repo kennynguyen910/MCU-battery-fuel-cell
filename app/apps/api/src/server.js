@@ -11,6 +11,7 @@ import { startDeviceListener } from './device-listener.js';
 import { SingleUserAuth } from './auth.js';
 import { DatabaseAuth } from './user-auth.js';
 import { NetworkSimulator } from './network-simulator.js';
+import { migrateSessionOwnership } from './session-ownership.js';
 
 const port = Number(process.env.PORT || 3001);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -18,6 +19,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 // Memory mode is useful for isolated tests; normal development supplies Postgres.
 const store = process.env.DATABASE_URL ? new PostgresStore(process.env.DATABASE_URL) : new MemoryStore();
+if (store.pool) await migrateSessionOwnership(store.pool);
 
 // Keep the returned server so shutdown can stop accepting new requests cleanly.
 const hasAuthSetting = Boolean(process.env.APP_USERNAME || process.env.APP_PASSWORD);

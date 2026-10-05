@@ -33,6 +33,18 @@ class Api {
 
   String baseUrl;
   String? token;
+  String? _username;
+  bool _authenticationRequired = false;
+  String? get username => _username;
+  bool get authenticationRequired => _authenticationRequired || token != null;
+  bool get signedIn => token != null && _username != null;
+  bool get isAdmin => signedIn && _username == 'capstone_admin';
+
+  void clearAuthentication({bool newServer = false}) {
+    token = null;
+    _username = null;
+    _authenticationRequired = !newServer;
+  }
 
   /// A client can be injected by tests so no real network is required.
   Api({String? baseUrl, http.Client? client})
@@ -47,6 +59,8 @@ class Api {
   Future<dynamic> _request(String method, String path,
       [Map<String, dynamic>? body]) async {
     final uri = Uri.parse('$baseUrl/api$path');
+    final requestToken = token;
+    final requestServer = baseUrl;
     final response = await (method == 'DELETE'
             ? client.delete(uri,
                 headers: {if (token != null) 'Authorization': 'Bearer $token'})
@@ -69,6 +83,11 @@ class Api {
           'The address did not return an API response. Check the host and port.');
     }
     if (response.statusCode >= 400) {
+      if (response.statusCode == 401 &&
+          token == requestToken &&
+          baseUrl == requestServer) {
+        clearAuthentication();
+      }
       throw ApiException(
           response.statusCode,
           data is Map
@@ -94,13 +113,17 @@ class Api {
     final result = await request(
         '/auth/login', {'username': username, 'password': password});
     token = result['token'] as String;
+    // Older servers returned only a token. Login still verifies the submitted
+    // name; the new server returns the canonical identity attached to the token.
+    _username = result['username'] as String? ?? username;
+    _authenticationRequired = true;
   }
 
   Future<void> logout() async {
     try {
       await request('/auth/logout', {});
     } finally {
-      token = null;
+      clearAuthentication();
     }
   }
 

@@ -33,20 +33,22 @@ export class SingleUserAuth {
     }
     this.attempts.delete(ip);
     const token = randomBytes(32).toString('base64url');
-    this.tokens.set(this.digest(token), now + TTL_MS);
-    return { token, expiresAt: new Date(now + TTL_MS).toISOString(), username };
+    this.tokens.set(this.digest(token), { expiresAt: now + TTL_MS, username: user.username });
+    return { token, expiresAt: new Date(now + TTL_MS).toISOString(), username: user.username,
+      isAdmin: user.username === 'capstone_admin' };
   }
 
   digest(token) { return createHash('sha256').update(token).digest('hex'); }
-  valid(token) {
-    if (!token) return false;
+  principal(token) {
+    if (!token) return null;
     const key = this.digest(token);
-    const expiry = this.tokens.get(key);
-    if (!expiry || expiry <= Date.now()) {
+    const session = this.tokens.get(key);
+    if (!session || session.expiresAt <= Date.now()) {
       this.tokens.delete(key);
-      return false;
+      return null;
     }
-    return true;
+    return { username: session.username, isAdmin: session.username === 'capstone_admin' };
   }
+  valid(token) { return this.principal(token) !== null; }
   logout(token) { if (token) this.tokens.delete(this.digest(token)); }
 }

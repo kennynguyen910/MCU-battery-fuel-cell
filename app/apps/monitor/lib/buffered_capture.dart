@@ -8,17 +8,22 @@ class BufferedCapture {
   final CaptureLog log;
   BufferedCapture(this.api, this.log);
   String? _session, _source, _stream, _destination;
+  String? _owner;
   int? cursor;
   int saved = 0, missed = 0;
   bool active = false;
   Future<void>? _pumping;
   void start(String session, String source, int baseline, String stream) {
+    if (api.authenticationRequired && !api.signedIn) {
+      throw StateError('Sign in before starting capture.');
+    }
     if (_pumping != null)
       throw StateError('Wait for the previous capture page to finish.');
     _session = session;
     _source = source;
     _stream = stream;
     _destination = api.baseUrl;
+    _owner = api.username;
     cursor = baseline;
     saved = 0;
     missed = 0;
@@ -41,7 +46,7 @@ class BufferedCapture {
 
   Future<void> _pump() async {
     for (var page = 0; page < 8 && active; page++) {
-      if (api.baseUrl != _destination) {
+      if (api.baseUrl != _destination || api.username != _owner) {
         stop();
         return;
       }
@@ -66,7 +71,8 @@ class BufferedCapture {
               'Invalid buffered frame; cursor retained for recovery.');
         }
       }
-      await log.appendAll(_destination!, _session!, frames);
+      await log.appendAll(_destination!, _session!, frames,
+          ownerUsername: _owner);
       cursor = result['nextCursor'] as int;
       missed += result['missedFrames'] as int? ?? 0;
       saved += frames.length;

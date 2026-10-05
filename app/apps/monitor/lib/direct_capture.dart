@@ -12,6 +12,7 @@ class DirectCapture {
   final String _epoch =
       '${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 32)}';
   String? sessionId;
+  String? _owner, _destination;
   bool capturing = false;
   int received = 0, invalid = 0, duplicates = 0, uploaded = 0, overflow = 0;
   int _lastUs = 0;
@@ -39,6 +40,10 @@ class DirectCapture {
       return;
     }
     if (!capturing || sessionId == null) return;
+    if (api.username != _owner || api.baseUrl != _destination) {
+      stop();
+      return;
+    }
     if (_pending.length >= 10000) {
       overflow++;
       capturing = false;
@@ -63,10 +68,15 @@ class DirectCapture {
   }
 
   void start(String id) {
+    if (api.authenticationRequired && !api.signedIn) {
+      throw StateError('Sign in before starting capture.');
+    }
     if (_pending.isNotEmpty || _draining != null) {
       throw StateError('Wait for pending frames to be saved first.');
     }
     sessionId = id;
+    _owner = api.username;
+    _destination = api.baseUrl;
     _clockOffsetUs = null;
     _lastDeviceUs = null;
     capturing = true;
@@ -117,7 +127,8 @@ class DirectCapture {
     // Bound each turn but persist multiple pages without waiting for uploads.
     for (var page = 0; page < 8 && _pending.isNotEmpty; page++) {
       final batch = _pending.take(1000).toList();
-      await log.appendAll(api.baseUrl, sessionId!, batch);
+      await log.appendAll(_destination!, sessionId!, batch,
+          ownerUsername: _owner);
       _pending.removeRange(0, batch.length);
     }
   }

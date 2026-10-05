@@ -73,6 +73,7 @@ test('session deletion requires a valid login when authentication is enabled', a
   const store = new MemoryStore();
   const { removed } = await fixture(store);
   const auth = new SingleUserAuth('student', 'long-test-password');
+  store.sessions.find(s => s.sessionId === removed.sessionId).ownerUsername = 'student';
   const { base, close } = await serve(store, { auth });
   const path = `${base}/sessions/${removed.sessionId}`;
   try {

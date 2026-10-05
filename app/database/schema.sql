@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS test_session (
   start_time TIMESTAMPTZ NOT NULL,
   end_time TIMESTAMPTZ,
   notes TEXT NOT NULL DEFAULT '',
+  owner_username TEXT,
   CHECK (end_time IS NULL OR end_time >= start_time),
   CONSTRAINT test_session_name_length_check
     CHECK (char_length(btrim(session_name)) BETWEEN 1 AND 120),
@@ -50,6 +51,11 @@ CREATE INDEX IF NOT EXISTS test_session_start_time_idx
 
 -- CREATE TABLE IF NOT EXISTS does not retrofit checks into an existing local
 -- cluster. These idempotent blocks keep an upgraded development database aligned.
+-- Existing sessions stay unassigned; only capstone_admin sees them with login enabled.
+ALTER TABLE test_session ADD COLUMN IF NOT EXISTS owner_username TEXT;
+CREATE INDEX IF NOT EXISTS test_session_owner_start_time_idx
+  ON test_session (owner_username, start_time DESC);
+
 DO $$ BEGIN
   ALTER TABLE monitor_device ADD CONSTRAINT monitor_device_name_length_check
     CHECK (char_length(btrim(device_name)) BETWEEN 1 AND 100);

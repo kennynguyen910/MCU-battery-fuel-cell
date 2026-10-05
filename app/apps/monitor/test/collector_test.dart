@@ -21,6 +21,10 @@ void main() {
     final uploads = <dynamic>[];
     // Route requests to the smallest realistic fake responses.
     final client = MockClient((request) async {
+      if (request.url.path.endsWith('/auth/login')) {
+        return http.Response(
+            '{"token":"test-token","username":"WillAdcox"}', 200);
+      }
       if (request.method == 'POST') {
         uploads.add(jsonDecode(request.body));
         return http.Response('{"insertedMeasurements":16}', 201);
@@ -39,12 +43,12 @@ void main() {
           ]),
           200);
     });
+    final api = Api(client: client);
+    await api.login('WillAdcox', 'test-password');
+    final log = CaptureLog(read: () async => null, write: (_) async {});
     // Inject both network and log dependencies into the real Dashboard widget.
-    await tester.pumpWidget(MaterialApp(
-        home: Dashboard(
-            role: AppRole.mobile,
-            api: Api(client: client),
-            log: CaptureLog(read: () async => null, write: (_) async {}))));
+    await tester.pumpWidget(
+        MaterialApp(home: Dashboard(role: AppRole.mobile, api: api, log: log)));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
         find.text('Start capture').hitTestable(), 300,
@@ -59,6 +63,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
     expect(uploads, hasLength(1));
+    expect(log.entries.single['ownerUsername'], 'WillAdcox');
     expect(uploads.single['samples'][0]['recordedAt'], frame['recordedAt']);
     expect(uploads.single['samples'][0]['channels'], frame['channels']);
     await tester.pump(const Duration(seconds: 1));
@@ -72,5 +77,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(uploads, hasLength(1));
     await tester.pumpWidget(const SizedBox());
+    api.close();
   });
 }

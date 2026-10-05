@@ -39,9 +39,8 @@ exit /b %errorlevel%
 REM Integration tests need the real local database; starting it is idempotent.
 node tools/start-postgres.js
 if errorlevel 1 exit /b 1
-set "TEST_DATABASE_URL=postgresql://capstone@127.0.0.1:55432/capstone"
 REM Stop immediately after the first failing boundary so its error remains clear.
-node --test apps/api/test/*.test.js
+node tools/test-api.js
 if errorlevel 1 exit /b 1
 cd apps\monitor
 call flutter test

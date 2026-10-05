@@ -59,14 +59,28 @@ class CaptureLog {
       });
   String get json => const JsonEncoder.withIndent('  ').convert(entries);
   int get pending => entries.where((e) => e['uploaded'] != true).length;
+
+  /// Local caches follow account and destination boundaries too. Unassigned
+  /// legacy entries remain intact and are visible only to admin with login enabled.
+  Iterable<Map<String, dynamic>> visibleEntries(Api api) => entries.where((e) =>
+      e['apiUrl'] == api.baseUrl &&
+      (api.authenticationRequired
+          ? api.signedIn && (api.isAdmin || e['ownerUsername'] == api.username)
+          : e['ownerUsername'] == null));
+  String visibleJson(Api api) =>
+      const JsonEncoder.withIndent('  ').convert(visibleEntries(api).toList());
+  int visiblePending(Api api) =>
+      visibleEntries(api).where((e) => e['uploaded'] != true).length;
   Future<void> _save(
           Map<String, dynamic> op, List<Map<String, dynamic>> next) =>
       operation != null ? operation!(op, next) : write(jsonEncode(next));
   Future<void> append(
-          String apiUrl, String sessionId, Map<String, dynamic> frame) =>
-      appendAll(apiUrl, sessionId, [frame]);
+          String apiUrl, String sessionId, Map<String, dynamic> frame,
+          {String? ownerUsername}) =>
+      appendAll(apiUrl, sessionId, [frame], ownerUsername: ownerUsername);
   Future<void> appendAll(
-          String apiUrl, String sessionId, List<Map<String, dynamic>> frames) =>
+          String apiUrl, String sessionId, List<Map<String, dynamic>> frames,
+          {String? ownerUsername}) =>
       _commit(() async {
         final added = <Map<String, dynamic>>[];
         final keys = <String>{};
@@ -75,6 +89,7 @@ class CaptureLog {
             ...frame,
             'apiUrl': apiUrl,
             'sessionId': sessionId,
+            'ownerUsername': ownerUsername,
             'uploaded': false
           };
           final key = _key(entry);
@@ -119,15 +134,18 @@ class CaptureLog {
 
   Future<int> _flush(Api api) async {
     final destination = api.baseUrl;
-    final todo = await _commit(() async => entries
-        .where((e) => e['uploaded'] != true && e['apiUrl'] == destination)
-        .toList());
+    final identity = api.username;
+    final requestToken = api.token;
+    final todo = await _commit(() async =>
+        visibleEntries(api).where((e) => e['uploaded'] != true).toList());
     var count = 0, index = 0;
     Object? failure;
     StackTrace? failureStack;
     Future<void> worker() async {
       while (index < todo.length && failure == null) {
-        if (api.baseUrl != destination) break;
+        if (api.baseUrl != destination ||
+            api.username != identity ||
+            api.token != requestToken) break;
         final sessionId = todo[index]['sessionId'] as String;
         final batch = <Map<String, dynamic>>[];
         while (index < todo.length &&

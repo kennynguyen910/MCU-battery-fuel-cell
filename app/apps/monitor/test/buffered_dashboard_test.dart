@@ -26,6 +26,9 @@ void main() {
       ]);
       final api = Api(client: MockClient((request) async {
         switch (request.url.path) {
+          case '/api/auth/login':
+            return http.Response(
+                '{"token":"test-token","username":"WillAdcox"}', 200);
           case '/api/device-sources':
             return http.Response(
                 '[{"sourceIp":"127.0.0.1","stale":false,"deviceId":"device"}]',
@@ -67,6 +70,7 @@ void main() {
             return http.Response('null', 200);
         }
       }));
+      await api.login('WillAdcox', 'test-password');
       String? disk;
       final log = CaptureLog(
           read: () async => disk,
@@ -93,6 +97,7 @@ void main() {
       }
       expect(sequence - before, fps * 3);
       expect(log.pending, sequence);
+      expect(log.entries.every((e) => e['ownerUsername'] == 'WillAdcox'), true);
       expect(requests, 1);
       expect((jsonDecode(disk!) as List).length, sequence);
       final stopped = sequence;
