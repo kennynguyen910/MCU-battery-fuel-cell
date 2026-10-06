@@ -1,5 +1,7 @@
 # Firmware architecture and future ADC interface
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 ## Scope and current implementation
 
 This document proposes the architecture for an ESP32-S3 Battery/Fuel Cell Monitor

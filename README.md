@@ -1,5 +1,39 @@
 # Battery/Fuel Cell Monitor firmware
 
+## Repository layout and build safety
+
+- **firmware/**: ESP32 ESP-IDF project. Run idf.py commands ONLY here.
+- **mobile_app/**: Flutter project, with supporting API in apps/api/ and database files in database/. Completely outside the ESP-IDF source tree.
+- **docs/**: shared protocol, integration, and system documentation.
+- **contracts/** and **tools/**: shared fixtures and compatibility checks. Firmware-only tests and the UDP receiver are in firmware/tools/.
+
+**DO NOT run ESP-IDF flash commands from mobile_app/. DO NOT add mobile_app/ as an ESP-IDF component. Flutter code is never flashed onto the ESP32 through this configuration.**
+
+Build from a repository-root terminal:
+
+~~~powershell
+cd firmware
+idf.py build
+~~~
+
+Flash example, from a new repository-root terminal (not run by this reorganization):
+
+~~~powershell
+cd firmware
+idf.py -p COM5 flash monitor
+~~~
+
+Flutter setup, from a new repository-root terminal:
+
+~~~powershell
+cd mobile_app
+flutter pub get
+flutter analyze
+~~~
+
+The repository root has no ESP-IDF CMakeLists.txt. Open firmware/ as the IDE project for firmware work. The previous generated build is preserved in ignored firmware/build-before-reorganization/; build a fresh cache in firmware/build/.
+
+
 ## NEXT STEPS - START HERE
 
 **[Open the development roadmap](NEXT_STEPS.md)** | **[Download the three-page visual guide](docs/Capstone_Next_Steps_Guide.pdf)**
@@ -10,14 +44,14 @@ The guide shows priorities, file locations, completion criteria and the hardware
 
 ## Firmware and app integration branch
 
-This branch contains the ESP-IDF firmware at the root and the complete
-Flutter/API/PostgreSQL application under [`app/`](app/README.md).
+This branch contains the ESP-IDF firmware under firmware/ and the complete
+Flutter/API/PostgreSQL application under [`mobile_app/`](mobile_app/README.md).
 Start with the [combined architecture and integration steps](docs/integration.md).
 
 - Windows app setup: `Setup_App.cmd`; normal startup: `Start_Project.cmd`.
-- Firmware build/flash: ESP-IDF commands at repository root.
+- Firmware build/flash: ESP-IDF commands from firmware/ only.
 - Shared compatibility checks: `python tools/check_integration.py`.
-- Current provisioning specification: [Will and Kenny Startup.pdf](app/docs/Will%20and%20Kenny%20Startup.pdf).
+- Current provisioning specification: [Will and Kenny Startup.pdf](mobile_app/docs/Will%20and%20Kenny%20Startup.pdf).
 
 Measurement wire formats already match. Full app-driven Wi-Fi setup still needs
 firmware credential transactions, secure pairing, live apply/clear, and state
@@ -47,9 +81,10 @@ The latest classic ESP32 build succeeds with ESP-IDF 5.5.5. The Bluetooth-enable
 
 ## Build and try it
 
-Open an ESP-IDF terminal in this repository. For the current classic ESP32 test board:
+Open an ESP-IDF terminal and enter firmware/. For the current classic ESP32 test board:
 
 ```powershell
+cd firmware
 idf.py set-target esp32
 idf.py build
 idf.py -p COM3 flash monitor
@@ -59,18 +94,18 @@ Replace `COM3` with the board's serial port. The first `set-target` selects the 
 
 Wi-Fi credentials now persist across reboot in NVS namespace `wifi_cfg`, keys `ssid` and `password`. With no saved credentials, startup succeeds in `UNPROVISIONED`: no station connection attempts occur, while acquisition, BLE, and diagnostics continue. The station radio runs to support explicit BLE-requested scans. Saved credentials are loaded at boot; connection attempts are asynchronous and existing disconnect/reconnect behavior is retained. `getState()` reports `UNPROVISIONED`, `CONNECTING`, `CONNECTED` (has IP), or `CONNECTION_FAILED`. Disconnects enter failure state, then `CONNECTING` when a retry starts.
 
-For temporary development seeding, use your existing local values in [`wifi_config.hpp`](components/wifi/include/wifi_config.hpp) and set `WIFI_ENABLE_DEVELOPMENT_SEED` to `1` in [`wifi_provisioning_config.hpp`](components/wifi/include/wifi_provisioning_config.hpp). It defaults to `0`; credentials are written only when NVS keys are missing, never over valid saved credentials or on a read error. After one successful boot, set it back to `0` and rebuild/flash without erasing NVS. With seeding disabled the credential header is excluded from compilation. Do not commit personal credentials.
+For temporary development seeding, use your existing local values in [`wifi_config.hpp`](firmware/components/wifi/include/wifi_config.hpp) and set `WIFI_ENABLE_DEVELOPMENT_SEED` to `1` in [`wifi_provisioning_config.hpp`](firmware/components/wifi/include/wifi_provisioning_config.hpp). It defaults to `0`; credentials are written only when NVS keys are missing, never over valid saved credentials or on a read error. After one successful boot, set it back to `0` and rebuild/flash without erasing NVS. With seeding disabled the credential header is excluded from compilation. Do not commit personal credentials.
 
 `WiFiManager` exposes `loadCredentials(WiFiCredentials&)`, `saveCredentials(const WiFiCredentials&)`, `hasStoredCredentials()`, and `clearCredentials()`. The separate [BLE Wi-Fi provisioning service](docs/ble_wifi_provisioning.md) now supports credential staging, COMMIT, CLEAR, CANCEL, and timeout/disconnect cleanup alongside GET_STATUS and START_SCAN. Credential operations require encryption by default; the documented development bypass is disabled. Saved credentials can be applied without reboot using `applyStoredCredentials()`. Call `init()` first, then invoke storage/lifecycle operations serially from one control task, never an ISR, acquisition task, or Wi-Fi callback. Queries of connection state are atomic. Saving persists only; `applyStoredCredentials()` reloads and starts an asynchronous connection, or credentials take effect on next boot; clearing stops Wi-Fi, erases only the two keys, and sets `UNPROVISIONED`. Disable seeding before clearing or credentials will be seeded on the next boot. NVS read/write errors are logged without credentials. An interrupted save can leave credentials absent; it does not intentionally reuse a partially updated pair. Full NVS erase is retained only for ESP-IDF's existing initialization recovery cases.
 
 For hardware validation, use the exact nRF Connect credential and regression tests in the [provisioning guide](docs/ble_wifi_provisioning.md). Monitor acquisition timing, queue counters, and BLE/UDP coexistence during NVS writes and Wi-Fi replacement. Keep development seeding disabled before CLEAR and reboot tests.
 
-Set the laptop's IPv4 address in [`components/udp/include/udp_config.hpp`](components/udp/include/udp_config.hpp). On the laptop, run:
+Set the laptop's IPv4 address in [`firmware/components/udp/include/udp_config.hpp`](firmware/components/udp/include/udp_config.hpp). On the laptop, run:
 
 ```powershell
-python .\tools\udp_receiver.py
+python .\firmware\tools\udp_receiver.py
 ```
 
 For BLE testing, scan for **BatteryMonitor** in nRF Connect, connect, and subscribe to Voltage Data. An 80-byte voltage notification needs an ATT MTU of at least 83; request MTU 128 in the app if necessary. See the [BLE guide](docs/ble.md) for the characteristic formats and phone test.
 
-The firmware entry point is [`main/main.cpp`](main/main.cpp). The root-level `main.cpp` is an older desktop example and is not part of the ESP-IDF firmware build. More detail is in the [protocol](docs/protocol.md), [UDP transport](docs/udp-transport.md), [architecture](docs/architecture.md), and [test plan](docs/test-plan.md) documents.
+The firmware entry point is [`firmware/main/main.cpp`](firmware/main/main.cpp). The `firmware/examples/desktop/main.cpp` is an older desktop example and is not part of the ESP-IDF firmware build. More detail is in the [protocol](docs/protocol.md), [UDP transport](docs/udp-transport.md), [architecture](docs/architecture.md), and [test plan](docs/test-plan.md) documents.

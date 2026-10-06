@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {decodeDatagram, inspectDatagram} from '../app/apps/api/src/device-udp.js';
-import {createApp} from '../app/apps/api/src/app.js';
-import {MemoryStore} from '../app/apps/api/src/memory-store.js';
+import {decodeDatagram, inspectDatagram} from '../mobile_app/apps/api/src/device-udp.js';
+import {createApp} from '../mobile_app/apps/api/src/app.js';
+import {MemoryStore} from '../mobile_app/apps/api/src/memory-store.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../contracts/protocol-v1.json', import.meta.url)));
 function verify(frame, sample) {

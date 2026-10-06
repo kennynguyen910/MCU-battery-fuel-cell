@@ -1,5 +1,7 @@
 # Stage 3B UDP measurement transport
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 ## Configuration and architecture
 
 Set UDP_DESTINATION_IP in components/udp/include/udp_config.hpp to the laptop's

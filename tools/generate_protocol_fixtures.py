@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 def build():
-    source = (ROOT / 'components/protocol/packetizer_self_test.cpp').read_text()
+    source = (ROOT / 'firmware/components/protocol/packetizer_self_test.cpp').read_text()
     body = source.split('constexpr MeasurementPacket expected{', 1)[1].split('};', 1)[0]
     golden = bytes(int(x, 16) for x in re.findall(r'0x([0-9A-Fa-f]{2})\b', body))
     if len(golden) != 88:

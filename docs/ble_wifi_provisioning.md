@@ -1,5 +1,7 @@
 # BLE Wi-Fi status and scanning (protocol version 1)
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 Implemented: status READ/NOTIFY, GET_STATUS, asynchronous START_SCAN, fragmented
 scan results, and BLE credential staging/save/apply/clear. Credential operations
 require link encryption by default. No phone-app, pairing/passkey UI, SoftAP,

@@ -1,5 +1,7 @@
 # Stage 2 acquisition test plan
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 ## Scope and architecture
 
 Current test target: classic ESP32 / ESP-32S. Final target: ESP32-S3.

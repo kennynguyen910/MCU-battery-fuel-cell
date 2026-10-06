@@ -1,5 +1,7 @@
 # Introductory BLE monitor (NimBLE)
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 BLE is a low-rate, independent GATT path. The 1 kHz AcquisitionTask copies each
 successful SampleFrame into `LatestFrameStore` under a short FreeRTOS critical
 section, then publishes to the existing Wi-Fi/UDP queue. BLE reads a copy of

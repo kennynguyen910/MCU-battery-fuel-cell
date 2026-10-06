@@ -1,5 +1,7 @@
 # ADC-to-MCU Interface Control Document
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 Status: preliminary; ADC and isolator selection are TBD.
 Interface owners: analog/measurement team and MCU/firmware team.
 

@@ -1,5 +1,7 @@
 # System requirements
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 Planned requirements; this starter only provides a fake ADC and frame interface.
 
 | Area | Requirement |

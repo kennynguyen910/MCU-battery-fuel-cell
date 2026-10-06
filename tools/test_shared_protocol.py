@@ -3,7 +3,9 @@ import json
 import re
 import unittest
 import uuid
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'firmware/tools'))
 from udp_receiver import parse_packet, parse_datagram, InvalidPacket
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = json.loads((ROOT / 'contracts/protocol-v1.json').read_text())
@@ -23,7 +25,7 @@ class SharedProtocolTests(unittest.TestCase):
         with self.assertRaises(InvalidPacket): parse_packet(damaged)
         self.assertEqual(parse_packet(frames[1]).sequence, 101)
     def test_nimble_provisioning_uuids_match_client_contract(self):
-        source = (ROOT / 'components/ble/wifi_provisioning.cpp').read_text()
+        source = (ROOT / 'firmware/components/ble/wifi_provisioning.cpp').read_text()
         for name, key in [('SERVICE_UUID','service'), ('CONTROL_UUID','control'), ('DATA_UUID','data'), ('STATUS_UUID','status')]:
             body = source.split(name + ' = BLE_UUID128_INIT(', 1)[1].split(');', 1)[0]
             little_endian = bytes(int(value, 16) for value in re.findall(r'0x([0-9a-fA-F]{2})\b', body))

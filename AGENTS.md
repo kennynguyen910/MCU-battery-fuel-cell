@@ -1,7 +1,7 @@
 # Project instructions
 
-The user's current specification is `app/docs/Will and Kenny Startup.pdf`, with
-its implementation map in `app/docs/ble-wifi-provisioning-v1.md`. Apply that
+The user's current specification is `mobile_app/docs/Will and Kenny Startup.pdf`, with
+its implementation map in `mobile_app/docs/ble-wifi-provisioning-v1.md`. Apply that
 specification to BLE Wi-Fi provisioning throughout this codebase. Earlier
 provisioning requirements are historical where they conflict with it.
 
@@ -11,8 +11,8 @@ provisioning service and existing WiFiManager / wifi_cfg NVS APIs. Require encry
 BLE links for credential operations, never log password bytes, and expire staging.
 The PDF's v1 exclusions apply to provisioning, not existing independent app features.
 
-The complete Flutter/API/database application is in `app/`; ESP-IDF firmware
-remains at the root. The application implements the client side of the protocol.
+The complete Flutter/API/database application is in `mobile_app/`; ESP-IDF firmware
+is under firmware/. The application implements the client side of the protocol.
 Upstream firmware currently supports status/scans only; credential handling and
 physical acceptance remain integration work. Preserve these boundaries in claims.
 

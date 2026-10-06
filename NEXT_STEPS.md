@@ -4,7 +4,7 @@
 
 **As of:** September 29, 2026 | **Baseline:** `0715fe4` | **Branch:** `codex/flutter-wifi-provisioning-2026-09-29`
 
-[Download the three-page visual guide](docs/Capstone_Next_Steps_Guide.pdf) | [Detailed integration architecture](docs/integration.md) | [Authoritative protocol PDF](app/docs/Will%20and%20Kenny%20Startup.pdf)
+[Download the three-page visual guide](docs/Capstone_Next_Steps_Guide.pdf) | [Detailed integration architecture](docs/integration.md) | [Authoritative protocol PDF](mobile_app/docs/Will%20and%20Kenny%20Startup.pdf)
 
 ## At a glance
 
@@ -12,14 +12,14 @@
 each preserved 360,000 complete frames at 2kSPS over three minutes, including
 delayed uploads, outage recovery and accurate microsecond intervals. The 1kSPS
 minimum and a shorter 3kSPS stress run also passed.
-See the [capture next-steps guide](app/docs/1ksps-capture.md) for results, reproduction,
+See the [capture next-steps guide](mobile_app/docs/1ksps-capture.md) for results, reproduction,
 and the physical phone/ESP32 gate. The linked September PDF remains a dated
 provisioning roadmap.
 
 **Current measured software ceiling:** normal uploads passed 6kSPS for three
 minutes in native and Chrome; the delayed-upload/outage profile passed 3kSPS.
 Native 7kSPS / delayed 3.5kSPS exhausted the pending buffer. The
-[upper-bound report](app/docs/capacity-limits.md) preserves all attempts and
+[upper-bound report](mobile_app/docs/capacity-limits.md) preserves all attempts and
 conditions. Firmware acquisition remains configured at 1kHz.
 
 | State | What it means |
@@ -45,9 +45,9 @@ There are no assigned dates or individual owners yet. Use the roles above to all
 
 **Files to start with**
 
-- `components/ble/ble_manager.cpp` - pairing/security setup and GAP events.
-- `components/ble/include/provisioning_protocol.hpp` - opcodes, error codes, byte validation.
-- `components/ble/include/wifi_provisioning.hpp` and `components/ble/wifi_provisioning.cpp` - staged transaction and worker handoff.
+- `firmware/components/ble/ble_manager.cpp` - pairing/security setup and GAP events.
+- `firmware/components/ble/include/provisioning_protocol.hpp` - opcodes, error codes, byte validation.
+- `firmware/components/ble/include/wifi_provisioning.hpp` and `firmware/components/ble/wifi_provisioning.cpp` - staged transaction and worker handoff.
 
 **Implement**
 
@@ -62,7 +62,7 @@ There are no assigned dates or individual owners yet. Use the roles above to all
 
 ## 2. Apply / clear without reboot
 
-**Files:** `components/wifi/include/wifi_manager.hpp`, `components/wifi/wifi_manager.cpp`, `components/wifi/wifi_credentials.cpp`, and the provisioning communications worker.
+**Files:** `firmware/components/wifi/include/wifi_manager.hpp`, `firmware/components/wifi/wifi_manager.cpp`, `firmware/components/wifi/wifi_credentials.cpp`, and the provisioning communications worker.
 
 **Implement**
 
@@ -76,13 +76,13 @@ There are no assigned dates or individual owners yet. Use the roles above to all
 
 ## 3. Live status + app handoff
 
-**Firmware files:** `components/ble/wifi_provisioning.cpp`, `components/wifi/wifi_manager.cpp`. **App files:** `app/apps/monitor/lib/wifi_protocol.dart`, `wifi_transport.dart`, and `wifi_settings.dart`.
+**Firmware files:** `firmware/components/ble/wifi_provisioning.cpp`, `firmware/components/wifi/wifi_manager.cpp`. **App files:** `mobile_app/lib/wifi_protocol.dart`, `wifi_transport.dart`, and `wifi_settings.dart`.
 
 - Publish WiFiManager state, IPv4, error, and encryption changes through the NimBLE host event queue. The current firmware only notifies on explicit requests/scan events.
 - Preserve an observable connection failure/timeout while retaining router reconnect behavior. Do not replace FAILURE so quickly that the phone misses it.
 - Keep the fixed eight-byte status format and the separate `5ecf1000` provisioning service. Do not create a second Wi-Fi state machine in BLE.
 - Verify the existing app's CONNECTING/CONNECTED/FAILURE display, retry/edit, change/forget, stale transaction rejection, and fresh encryption check.
-- Leave UDP destination setup separate: configure the laptop LAN address in `components/udp/include/udp_config.hpp`. Provisioning v1 does not discover that address or create cloud/API accounts.
+- Leave UDP destination setup separate: configure the laptop LAN address in `firmware/components/udp/include/udp_config.hpp`. Provisioning v1 does not discover that address or create cloud/API accounts.
 
 **Gate:** Wrong password and router loss/recovery produce actionable phone updates. The device keeps acquiring and BLE remains available for replacement credentials.
 
@@ -121,22 +121,23 @@ cd app
 .\dev.cmd test
 ```
 
-In the firmware machine's ESP-IDF terminal at repository root:
+In the firmware machine's ESP-IDF terminal in firmware/:
 
 ```powershell
+cd firmware
 idf.py build
 idf.py -p COM3 flash monitor
 ```
 
 Use the actual board target and serial port; `COM3` is a placeholder. Build and retest separately for classic ESP32 and ESP32-S3. Check firmware image/partition headroom and task stack use as part of the firmware build/bench review. The last firmware README reports a classic image near its 1 MB partition limit; remeasure after provisioning is added.
 
-Record results in `app/docs/verification.md` with a linked firmware/bench evidence record in `docs/`. Include commit, board, phone, build target, pass/fail, and unresolved issues. Keep credentials out of logs and evidence. `--skip-flutter` is partial verification, not a complete pass. Review protocol changes before deliberately regenerating fixtures.
+Record results in `mobile_app/docs/verification.md` with a linked firmware/bench evidence record in `docs/`. Include commit, board, phone, build target, pass/fail, and unresolved issues. Keep credentials out of logs and evidence. `--skip-flutter` is partial verification, not a complete pass. Review protocol changes before deliberately regenerating fixtures.
 
 **Merge gate:** Host checks, applicable app tests, firmware builds, and all required board cases have evidence. Keep the integration branch separate until the user authorizes the later merge.
 
 ## Preserve these boundaries
 
-- Keep firmware at the root and Flutter/API/PostgreSQL under `app/`, with separate builds.
+- Keep firmware under firmware/ and Flutter/API/PostgreSQL under `mobile_app/`, with separate builds.
 - Keep 16 channels, existing measurement UUIDs, 88-byte UDP frames, 80-byte BLE values, CRC32, and existing UDP batching.
 - Do not touch ADC acquisition, SampleFrame, queues, timer configuration, or the 1 kHz rate from provisioning.
 - Keep the mobile local-log/upload ownership path; UDP reception is a transient buffer, not a direct SQL writer.
@@ -146,6 +147,6 @@ Record results in `app/docs/verification.md` with a linked firmware/bench eviden
 
 **iOS native BLE:** Android is the current direct connection UI. iOS needs its own platform adapter, Bluetooth usage descriptions, a Mac build, and phone acceptance.
 
-**Optional USB telemetry:** `app/firmware/usb_measurement_console.hpp` is not yet wired into root firmware. If adopted, use low-rate LatestFrameStore snapshots without draining the UDP queue.
+**Optional USB telemetry:** `firmware/examples/usb-console/usb_measurement_console.hpp` is not yet wired into the ESP-IDF build. If adopted, use low-rate LatestFrameStore snapshots without draining the UDP queue.
 
 **Other future work:** Real ADC/calibration, OTA, cloud/account setup, Enterprise credentials, and UDP destination discovery are independent workstreams, not additions to provisioning v1.

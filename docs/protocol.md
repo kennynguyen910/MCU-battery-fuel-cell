@@ -1,5 +1,7 @@
 # Version 1 binary measurement protocol
 
+Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
+
 Stage 3A defines one fixed-size measurement packet. Packetizer converts a
 SampleFrame into a caller-owned std::array of exactly 88 bytes. It performs no
 networking, logging, task operations or dynamic allocation. Stage 2 acquisition,
