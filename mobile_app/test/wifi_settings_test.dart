@@ -3,57 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:capstone_monitor/wifi_protocol.dart';
 import 'package:capstone_monitor/wifi_settings.dart';
-import 'package:capstone_monitor/wifi_transport.dart';
-
-class FakeProvisioning implements ProvisioningTransport {
-  final notifications = {
-    for (final uuid in [
-      provisioningControl,
-      provisioningData,
-      provisioningStatus
-    ])
-      uuid: StreamController<List<int>>.broadcast(sync: true)
-  };
-  final writes = <List<int>>[];
-  List<int> status = [1, 0, 8, 0, 0, 0, 0, 0];
-  bool noService = false;
-  int? reject;
-  Future<void> Function(String, List<int>)? onWrite;
-  @override
-  Future<void> discover() async {
-    if (noService) throw StateError('Firmware missing provisioning service');
-  }
-
-  @override
-  Stream<List<int>> subscribe(String characteristic) =>
-      notifications[characteristic]!.stream;
-  @override
-  Future<List<int>> readStatus() async => status;
-  @override
-  Future<void> write(String characteristic, List<int> bytes) async {
-    writes.add(List.of(bytes));
-    if (onWrite != null) {
-      await onWrite!(characteristic, bytes);
-      return;
-    }
-    if (characteristic == provisioningControl) {
-      notifications[provisioningControl]!.add([
-        1,
-        reject == bytes[1] ? 0x81 : 0x80,
-        bytes[2],
-        2,
-        bytes[1],
-        reject == bytes[1] ? 8 : 0
-      ]);
-    }
-  }
-
-  Future<void> close() async {
-    for (final controller in notifications.values) {
-      await controller.close();
-    }
-  }
-}
+import 'support/provisioning_fake.dart';
 
 Future<void> open(WidgetTester tester, FakeProvisioning transport) async {
   await tester
@@ -77,6 +27,8 @@ void main() {
     await enterCredentials(tester);
     await tester.tap(find.text('Save and connect'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
     final commands = transport.writes
         .where((packet) => packet[1] == 3 || packet[1] == 4)
         .toList();
@@ -91,7 +43,8 @@ void main() {
     expect(
         tester.widget<TextField>(find.byType(TextField).at(1)).controller!.text,
         '');
-    transport.notifications[provisioningStatus]!.add([1, 3, 8, 10, 0, 0, 0, 0]);
+    transport.reportStatus([1, 1, 8, 0, 0, 0, 0, 0]);
+    transport.reportStatus([1, 3, 8, 10, 0, 0, 0, 0]);
     await tester.pump();
     expect(find.textContaining('Check the password'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
@@ -106,6 +59,8 @@ void main() {
     transport.status[2] = 8;
     await tester.tap(find.text('Save and connect'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
     expect(transport.writes.last[1], 4);
     await tester.pumpWidget(const SizedBox());
   });
@@ -116,6 +71,8 @@ void main() {
     await enterCredentials(tester);
     await tester.tap(find.text('Save and connect'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
     expect(transport.writes, isEmpty);
     expect(find.textContaining('encrypted BLE connection'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
@@ -125,7 +82,7 @@ void main() {
     final transport = FakeProvisioning();
     addTearDown(transport.close);
     await open(tester, transport);
-    await tester.tap(find.text('Change network · Scan Wi-Fi'));
+    await tester.tap(find.text('Set Up Wi-Fi · Scan Wi-Fi'));
     await tester.pump();
     final transaction = transport.writes.single[2];
     transport.notifications[provisioningData]!
@@ -137,7 +94,7 @@ void main() {
         .add([1, 0x81, transaction, 2, 2, 6]);
     await tester.pumpAndSettle();
     expect(find.text('Network scan failed. Try again.'), findsOneWidget);
-    await tester.tap(find.text('Change network · Scan Wi-Fi'));
+    await tester.tap(find.text('Set Up Wi-Fi · Scan Wi-Fi'));
     await tester.pump();
     expect(transport.writes.length, 2);
     await tester.pumpWidget(const SizedBox());
@@ -150,6 +107,8 @@ void main() {
     await open(tester, transport);
     await enterCredentials(tester);
     await tester.tap(find.text('Save and connect'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect'));
     await tester.pumpAndSettle();
     expect(transport.writes.map((packet) => packet[1]), [3, 6]);
     expect(transport.writes.first[2], transport.writes.last[2]);
@@ -172,6 +131,8 @@ void main() {
     await open(tester, transport);
     await enterCredentials(tester);
     await tester.tap(find.text('Save and connect'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect'));
     await tester.pump();
     await tester.pumpWidget(const SizedBox());
     pending.complete();

@@ -3,15 +3,21 @@
 
 #include <cstring>
 #include "esp_log.h"
+#include "esp_random.h"
 #include "nvs_flash.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_att.h"
 #include "host/ble_hs.h"
 #include "host/ble_hs_mbuf.h"
+#include "host/ble_sm.h"
+#include "host/ble_store.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+
+// ESP-IDF NimBLE bond-store initialization (same entry point as bleprph).
+extern "C" void ble_store_config_init(void);
 
 namespace {
 constexpr char TAG[] = "ble_manager";
@@ -42,6 +48,14 @@ bool BLEManager::init()
     instance_ = this;
     ble_hs_cfg.sync_cb = onSync;
     ble_hs_cfg.reset_cb = onReset;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_mitm = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+    ble_store_config_init();
     ble_svc_gap_init();
     ble_svc_gatt_init();
     if (ble_svc_gap_device_name_set(ble_config::DEVICE_NAME) != 0 ||
@@ -123,7 +137,15 @@ void BLEManager::onSync()
 
 void BLEManager::onReset(int reason)
 {
-    if (instance_) instance_->provisioning_.reset();
+    if (instance_) {
+        instance_->provisioning_.reset();
+        instance_->connected_.store(false);
+        instance_->connection_.store(NO_CONNECTION);
+        instance_->voltage_subscribed_.store(false);
+        instance_->status_subscribed_.store(false);
+        instance_->have_read_voltage_ = false;
+        instance_->diagnostics_.recordBleConnection(false);
+    }
     ESP_LOGW(TAG, "NimBLE host reset: %d", reason);
 }
 
@@ -153,6 +175,16 @@ void BLEManager::advertise()
 int BLEManager::gapEvent(ble_gap_event* event, void* arg)
 {
     auto& self = *static_cast<BLEManager*>(arg);
+    // Provisioning owns exactly one client, including on older local sdkconfigs.
+    if (event->type == BLE_GAP_EVENT_CONNECT && event->connect.status == 0 && self.connected_.load()) {
+        ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        return 0;
+    }
+    if (event->type == BLE_GAP_EVENT_DISCONNECT &&
+        event->disconnect.conn.conn_handle != self.connection_.load()) return 0;
+    if ((event->type == BLE_GAP_EVENT_SUBSCRIBE && event->subscribe.conn_handle != self.connection_.load()) ||
+        (event->type == BLE_GAP_EVENT_ENC_CHANGE && event->enc_change.conn_handle != self.connection_.load()) ||
+        (event->type == BLE_GAP_EVENT_PASSKEY_ACTION && event->passkey.conn_handle != self.connection_.load())) return 0;
     self.provisioning_.gapEvent(*event);
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
@@ -162,6 +194,9 @@ int BLEManager::gapEvent(ble_gap_event* event, void* arg)
             self.connected_.store(true);
             self.diagnostics_.recordBleConnection(true);
             ESP_LOGI(TAG, "Client connected");
+            const int security = ble_gap_security_initiate(event->connect.conn_handle);
+            if (security != 0 && security != BLE_HS_EALREADY)
+                ESP_LOGW(TAG, "BLE security initiation failed: %d", security);
         } else self.advertise();
         break;
     case BLE_GAP_EVENT_DISCONNECT:
@@ -183,6 +218,27 @@ int BLEManager::gapEvent(ble_gap_event* event, void* arg)
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "Negotiated ATT MTU=%u", event->mtu.value);
         break;
+    case BLE_GAP_EVENT_PASSKEY_ACTION: {
+        ble_sm_io input{};
+        input.action = event->passkey.params.action;
+        if (input.action != BLE_SM_IOACT_DISP) {
+            ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
+            break;
+        }
+        input.passkey = esp_random() % 1000000;
+        // Pairing code only; never a Wi-Fi password. Replace serial presentation
+        // with the board's OLED when that display implementation exists.
+        ESP_LOGI(TAG, "BLE pairing: enter %06lu on the phone", static_cast<unsigned long>(input.passkey));
+        if (ble_sm_inject_io(event->passkey.conn_handle, &input) != 0)
+            ESP_LOGW(TAG, "BLE passkey response failed");
+        break;
+    }
+    case BLE_GAP_EVENT_ENC_CHANGE:
+        ESP_LOGI(TAG, "BLE security completed (status %d)", event->enc_change.status);
+        break;
+    case BLE_GAP_EVENT_REPEAT_PAIRING:
+        // Do not silently replace an established bond with a new peer key.
+        return BLE_GAP_REPEAT_PAIRING_IGNORE;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         if (!self.connected_.load()) self.advertise();
         break;

@@ -46,13 +46,18 @@ async function start(script, url, matches) {
     failure = new Error(`${script} stopped (${code}). Check the error above.`);
     if (!stopping) stop(1);
   });
-  for (let attempt = 0; attempt < 30; attempt++) {
+  // Cold Windows starts may need extra time for imports and database migrations.
+  console.log(`Starting ${script}; waiting for ${url}...`);
+  for (let attempt = 0; attempt < 120; attempt++) {
     if (failure) throw failure;
     const result = await health(url);
-    if (result && matches(result)) return;
+    if (result) {
+      if (!matches(result)) throw new Error(`A different service occupies ${url}. Close it before launching Capstone.`);
+      return;
+    }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
-  throw new Error(`Cannot reach ${url}. Check the configured database connection and network.`);
+  throw new Error(`Timed out waiting for ${url} after 120 readiness checks. Check the API output above; startup may be slow or blocked by the database.`);
 }
 try {
   if (!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL in .env; the normal app requires persistent PostgreSQL storage.');

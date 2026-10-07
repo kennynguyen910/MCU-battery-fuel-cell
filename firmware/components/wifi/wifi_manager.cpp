@@ -273,6 +273,20 @@ bool WiFiManager::applyStoredCredentials()
     return init(false) && start();
 }
 
+bool WiFiManager::getConnectedNetwork(WiFiScanResult& result) const
+{
+    result = {};
+    if (!isConnected()) return false;
+    wifi_ap_record_t ap{};
+    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) return false;
+    const auto length = strnlen(reinterpret_cast<const char*>(ap.ssid), sizeof(ap.ssid));
+    if (!length || length > 32 || !isConnected()) return false;
+    std::memcpy(result.ssid, ap.ssid, length);
+    result.rssi = ap.rssi;
+    result.auth = static_cast<std::uint8_t>(ap.authmode);
+    return true;
+}
+
 bool WiFiManager::setStateListener(StateListener listener, void* context)
 {
     // Called once by BLE startup, not concurrently by competing registrants.

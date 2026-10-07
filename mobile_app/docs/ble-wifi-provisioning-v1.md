@@ -27,6 +27,17 @@ Change network replaces credentials without first clearing them. Forget network
 sends CLEAR_CREDENTIALS. Connection failures show a retry message. Missing service
 produces an explicit firmware compatibility message.
 
+## Complete Flutter workflow
+
+See [the client workflow and physical-test checklist](ble-wifi-physical-test.md).
+The existing protocol now runs through a dedicated controller. The screen confirms
+the SSID before transmission, clears its password field on submission/cancellation,
+and allows cancellation during transfer. After COMMIT ACK it watches notifications,
+polls status every two seconds and applies a 60-second observation deadline.
+Stopping observation after COMMIT does not erase stored credentials. Disconnect
+messages distinguish interrupted staging from an acknowledged but unknown Wi-Fi result.
+No distinct authentication-failure versus missing-network result exists in v1.
+
 ## Firmware boundary and remaining acceptance
 
 This application checkout contains only a USB measurement extension. The linked

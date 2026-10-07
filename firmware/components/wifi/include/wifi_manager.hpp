@@ -52,6 +52,9 @@ public:
     WiFiState getState() const;
     bool credentialsStored() const { return credentials_stored_.load(); }
     void getIPv4(std::uint8_t out[4]) const;
+    // Bounded AP query for the connected state listener: no password, NVS,
+    // or association wait. An unavailable driver/connection returns false.
+    bool getConnectedNetwork(WiFiScanResult& result) const;
     static constexpr unsigned MAX_SCAN_RESULTS = 15;
     // One communications worker only; never a GATT callback or acquisition task.
     // Starts a nonblocking driver scan, then sleeps on SCAN_DONE (15 s bound).

@@ -8,7 +8,7 @@ inline constexpr std::uint8_t VERSION = 0x01;
 inline constexpr std::uint8_t GET_STATUS = 0x01, START_SCAN = 0x02,
     BEGIN_CREDENTIALS = 0x03, COMMIT_CREDENTIALS = 0x04, CLEAR_CREDENTIALS = 0x05, CANCEL = 0x06;
 inline constexpr std::uint8_t ACK = 0x80, ERROR = 0x81, SCAN_COMPLETE = 0x82;
-inline constexpr std::uint8_t WIFI_CREDENTIALS = 0x01, SCAN_RESULT = 0x02;
+inline constexpr std::uint8_t WIFI_CREDENTIALS = 0x01, SCAN_RESULT = 0x02, NETWORK_INFO = 0x03;
 inline constexpr std::uint8_t OK = 0x00, UNSUPPORTED_VERSION = 0x01,
     INVALID_COMMAND = 0x02, INVALID_PAYLOAD = 0x03, OPERATION_BUSY = 0x04,
     SECURITY_REQUIRED = 0x05, SCAN_FAILED = 0x06, INVALID_SSID = 0x07,
@@ -20,7 +20,15 @@ inline constexpr unsigned DATA_HEADER_SIZE = 7, NOTIFICATION_SIZE = 20;
 inline constexpr unsigned CHUNK_SIZE = NOTIFICATION_SIZE - DATA_HEADER_SIZE;
 inline constexpr unsigned MAX_SSID_SIZE = 32, OBJECT_HEADER_SIZE = 4;
 inline constexpr unsigned MAX_OBJECT_SIZE = OBJECT_HEADER_SIZE + MAX_SSID_SIZE;
+inline constexpr unsigned MAX_NETWORK_INFO_SIZE = 1 + MAX_SSID_SIZE + 4 + 1;
 inline constexpr std::uint8_t FLAG_STORED = 1, FLAG_SCANNING = 2, FLAG_TRANSACTION = 4, FLAG_ENCRYPTED = 8;
+
+constexpr void encodeResponse(std::uint8_t (&out)[6], std::uint8_t opcode,
+                              std::uint8_t transaction, std::uint8_t command, std::uint8_t result)
+{
+    out[0] = VERSION; out[1] = opcode; out[2] = transaction;
+    out[3] = 2; out[4] = command; out[5] = result;
+}
 
 // Pure bounded validation; caller may pass a copied four-byte prefix with the
 // original total length. Never reads beyond that prefix or a short request.
@@ -35,11 +43,13 @@ constexpr std::uint8_t validateControl(const std::uint8_t* bytes, std::size_t le
 
 constexpr unsigned encodeFragment(std::uint8_t* out, std::uint8_t transaction,
                                   std::uint8_t object_id, const std::uint8_t* object,
-                                  unsigned total, unsigned offset)
+                                  unsigned total, unsigned offset, std::uint8_t type = SCAN_RESULT)
 {
-    if (total > MAX_OBJECT_SIZE || offset >= total) return 0;
+    if ((type != SCAN_RESULT && type != NETWORK_INFO) ||
+        total > (type == SCAN_RESULT ? MAX_OBJECT_SIZE : MAX_NETWORK_INFO_SIZE) || offset >= total)
+        return 0;
     const unsigned count = total - offset < CHUNK_SIZE ? total - offset : CHUNK_SIZE;
-    out[0] = VERSION; out[1] = SCAN_RESULT; out[2] = transaction;
+    out[0] = VERSION; out[1] = type; out[2] = transaction;
     out[3] = object_id; out[4] = offset; out[5] = total; out[6] = count;
     for (unsigned i = 0; i < count; ++i) out[DATA_HEADER_SIZE + i] = object[offset + i];
     return DATA_HEADER_SIZE + count;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'wifi_transport.dart';
 import 'wifi_protocol.dart';
+import 'wifi_provisioning.dart';
 
 class DeviceWifiSettings extends StatefulWidget {
   final ProvisioningTransport transport;
@@ -11,362 +12,201 @@ class DeviceWifiSettings extends StatefulWidget {
 }
 
 class _DeviceWifiSettingsState extends State<DeviceWifiSettings> {
-  final _subscriptions = <StreamSubscription<List<int>>>[];
-  final _objects = ProvisioningObjects();
-  final _networks = <String, WifiNetwork>{};
+  late final WifiProvisioning _provisioning =
+      WifiProvisioning(widget.transport);
   final _ssid = TextEditingController(), _password = TextEditingController();
-  WifiStatus? _status;
-  String _message = 'Reading device Wi-Fi status…', _currentNetwork = '';
-  bool _busy = false, _available = false;
-  int _next = 0, _scanTransaction = 0, _credentialsTransaction = 0;
-  bool _closed = false;
-  Completer<void>? _ack;
-  int _pendingTransaction = 0, _pendingOpcode = 0;
-  Timer? _scanTimeout;
-
-  void _update(void Function() change) {
-    if (mounted) setState(change);
-  }
-
-  int _transaction() => _next = _next % 255 + 1;
-
+  final _ssidFocus = FocusNode();
+  bool _showPassword = false, _confirming = false;
   @override
   void initState() {
     super.initState();
-    _initialize();
+    _provisioning.addListener(_changed);
+    unawaited(_provisioning.initialize());
   }
 
-  Future<void> _initialize() async {
+  void _changed() {
+    if (!mounted) return;
+    if (_provisioning.phase == ProvisioningPhase.disconnected) _clearPassword();
+    setState(() {});
+  }
+
+  void _clearPassword() {
+    _password.clear();
+    _showPassword = false;
+  }
+
+  Future<void> _submit() async {
+    if (_confirming || _provisioning.busy) return;
+    final ssid = _ssid.text;
+    final selected = _provisioning.networks[ssid];
+    String? validation;
+    List<int>? object;
     try {
-      await widget.transport.discover();
-      if (_closed) return;
-      for (final uuid in [
-        provisioningControl,
-        provisioningData,
-        provisioningStatus
-      ]) {
-        _subscriptions.add(widget.transport.subscribe(uuid).listen((bytes) {
-          try {
-            if (uuid == provisioningStatus) {
-              final status = WifiStatus.decode(bytes);
-              _update(() {
-                _status = status;
-                if (status.state == 0) _currentNetwork = '';
-                _message = status.state == 3
-                    ? provisioningError(status.error == 0 ? 10 : status.error)
-                    : status.error != 0
-                        ? provisioningError(status.error)
-                        : status.state == 0
-                            ? 'Set up Wi-Fi? Scan nearby networks to begin.'
-                            : status.label;
-              });
-            } else if (uuid == provisioningControl) {
-              if (bytes.length < 4 ||
-                  bytes[0] != 1 ||
-                  bytes.length != 4 + bytes[3]) {
-                throw const FormatException('Invalid control response');
-              }
-              if ([0x80, 0x81].contains(bytes[1])) {
-                if (bytes.length != 6)
-                  throw const FormatException('Invalid acknowledgment');
-                if (bytes[2] == _pendingTransaction &&
-                    bytes[4] == _pendingOpcode &&
-                    _ack != null &&
-                    !_ack!.isCompleted) {
-                  if (bytes[1] == 0x81 || bytes[5] != 0) {
-                    _ack!
-                        .completeError(StateError(provisioningError(bytes[5])));
-                  } else {
-                    _ack!.complete();
-                  }
-                }
-                if (bytes[1] == 0x81 &&
-                    bytes[2] == _scanTransaction &&
-                    bytes[4] == 2) {
-                  _scanTimeout?.cancel();
-                  _objects.clear();
-                  _scanTransaction = 0;
-                  _update(() {
-                    _busy = false;
-                    _message = provisioningError(bytes[5]);
-                  });
-                }
-              } else if (bytes[1] == 0x82 &&
-                  bytes[2] == _scanTransaction &&
-                  bytes.length == 5) {
-                _scanTimeout?.cancel();
-                _objects.clear();
-                _scanTransaction = 0;
-                _update(() {
-                  _busy = false;
-                  _message = 'Scan complete: ${bytes[4]} networks reported.';
-                });
-              }
-            } else {
-              final type = bytes.length > 1 ? bytes[1] : 0;
-              if (bytes.length < 3)
-                throw const FormatException('Short data response');
-              if (type == 2 &&
-                  (_scanTransaction == 0 || bytes[2] != _scanTransaction))
-                return;
-              if (type == 3 &&
-                  bytes[2] != 0 &&
-                  bytes[2] != _credentialsTransaction) return;
-              final object = _objects.add(bytes, bytes[2]);
-              if (object == null) return;
-              if (type == 2) {
-                final network = WifiNetwork.decode(object);
-                _update(() {
-                  final previous = _networks[network.ssid];
-                  if (previous == null || previous.rssi < network.rssi)
-                    _networks[network.ssid] = network;
-                });
-              } else if (type == 3) {
-                if (object.isEmpty ||
-                    object[0] > 32 ||
-                    object.length != object[0] + 6) {
-                  throw const FormatException('Invalid network information');
-                }
-                // Network information contains no password.
-                final network = WifiNetwork.decode([
-                  0,
-                  object.last,
-                  0,
-                  object[0],
-                  ...object.sublist(1, 1 + object[0])
-                ]);
-                _update(() => _currentNetwork = network.ssid);
-              }
-            }
-          } catch (_) {
-            _update(() => _message =
-                'Invalid provisioning response. Retry the operation.');
-          }
-        }, onError: (Object _) {
-          _update(() {
-            _available = false;
-            _busy = false;
-            _message = 'BLE provisioning disconnected. Reconnect to retry.';
-          });
-        }));
+      if (ssid.isEmpty)
+        validation = 'Enter a network name.';
+      else if (selected != null &&
+          selected.auth != 0 &&
+          _password.text.isEmpty) {
+        validation = 'Enter the password for this secured network.';
+      } else {
+        object =
+            credentialObject(ssid, selected?.auth == 0 ? '' : _password.text);
       }
-      final bytes = await widget.transport.readStatus();
-      if (_closed) return;
-      _update(() {
-        _status = WifiStatus.decode(bytes);
-        _available = true;
-        _message = _status!.state == 0
-            ? 'Set up Wi-Fi? Scan nearby networks to begin.'
-            : _status!.label;
-      });
-    } catch (error) {
-      _update(() => _message = '$error');
-    }
-  }
-
-  Future<void> _command(int opcode, int transaction) async {
-    if (_closed) throw StateError('Wi-Fi settings closed.');
-    final ack = Completer<void>();
-    _ack = ack;
-    _pendingOpcode = opcode;
-    _pendingTransaction = transaction;
-    // Attach the timeout/error handler before writing, because ACK can arrive during the write.
-    final response = ack.future.timeout(const Duration(seconds: 10));
-    try {
-      await Future.wait<void>([
-        widget.transport
-            .write(provisioningControl, [1, opcode, transaction, 0]),
-        response,
-      ], eagerError: true);
+    } on FormatException catch (error) {
+      validation = error.message;
     } finally {
-      if (identical(_ack, ack)) _ack = null;
+      object?.fillRange(0, object.length, 0);
     }
-  }
-
-  Future<void> _run(Future<void> Function() action) async {
-    if (_busy) return;
-    _update(() => _busy = true);
-    try {
-      await action();
-    } catch (error) {
-      _update(() => _message = '$error');
-    } finally {
-      _update(() => _busy = false);
+    if (validation != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(validation)));
+      return;
     }
-  }
-
-  Future<void> _security() async {
-    final status = WifiStatus.decode(await widget.transport.readStatus());
-    if (_closed) throw StateError('Wi-Fi settings closed.');
-    _update(() => _status = status);
-    if (status.encrypted != true) throw StateError(provisioningError(5));
-  }
-
-  Future<void> _scan() async {
-    _update(() {
-      _busy = true;
-      _networks.clear();
-      _message = 'Scanning nearby Wi-Fi networks…';
+    setState(() {
+      _confirming = true;
+      _showPassword = false;
     });
-    _objects.clear();
-    _scanTransaction = _transaction();
-    _scanTimeout?.cancel();
-    _scanTimeout = Timer(const Duration(seconds: 60), () {
-      _objects.clear();
-      _scanTransaction = 0;
-      _update(() {
-        _busy = false;
-        _message = 'Scan timed out. Try again.';
-      });
-    });
-    try {
-      await _command(2, _scanTransaction);
-    } catch (error) {
-      _scanTimeout?.cancel();
-      _update(() {
-        _busy = false;
-        _message = '$error';
-      });
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text('Connect ESP32 to "$ssid"?'),
+              content: const Text(
+                  'The Wi-Fi credentials will be sent directly to the ESP32 over encrypted Bluetooth.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Connect')),
+              ],
+            ));
+    if (!mounted) return;
+    setState(() => _confirming = false);
+    if (confirmed != true) {
+      _clearPassword();
+      await _provisioning.cancel();
+      return;
     }
-  }
-
-  Future<void> _save() async {
-    await _security();
-    if (_ssid.text.isEmpty)
-      throw const FormatException('Enter a network name.');
-    final selected = _networks[_ssid.text];
-    if (selected != null && !selected.supported)
-      throw StateError(
-          'Unsupported in this version. Select an Open, WPA2, or WPA3 personal network.');
-    final object = credentialObject(_ssid.text, _password.text);
-    final transaction = _transaction();
-    _credentialsTransaction = transaction;
-    try {
-      await _command(3, transaction);
-      for (final fragment in credentialFragments(transaction, object)) {
-        try {
-          if (_closed) throw StateError('Wi-Fi settings closed.');
-          await widget.transport.write(provisioningData, fragment);
-        } finally {
-          fragment.fillRange(0, fragment.length, 0);
-        }
-      }
-      await _command(4, transaction);
-      _update(() => _message =
-          'Credentials saved. Waiting for device connection status…');
-    } catch (_) {
-      try {
-        await _command(6, transaction);
-      } catch (_) {/* Firmware staging expires after 60 seconds. */}
-      rethrow;
-    } finally {
-      object.fillRange(0, object.length, 0);
-      if (!_closed) _password.clear();
-    }
+    final password = _password.text;
+    _clearPassword();
+    setState(() {});
+    await _provisioning.provision(ssid, password);
   }
 
   @override
   void dispose() {
-    _closed = true;
-    if (_ack != null && !_ack!.isCompleted)
-      _ack!.completeError(StateError('Wi-Fi settings closed.'));
-    if (_credentialsTransaction != 0 && _busy) {
-      // Best effort cancellation on route close; firmware must also expire staging.
-      unawaited(widget.transport.write(provisioningControl,
-          [1, 6, _credentialsTransaction, 0]).catchError((Object _) {}));
-    }
-    for (final subscription in _subscriptions) {
-      subscription.cancel();
-    }
-    _scanTimeout?.cancel();
-    _objects.clear();
+    _provisioning.removeListener(_changed);
+    _provisioning.dispose();
     _ssid.dispose();
-    _password.clear();
+    _clearPassword();
     _password.dispose();
+    _ssidFocus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final networks = _networks.values.toList()
+    final model = _provisioning;
+    final enabled = model.available && !model.busy && !_confirming;
+    final networks = model.networks.values.toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    final selected = model.networks[_ssid.text];
+    final open = selected?.auth == 0;
     return Scaffold(
         appBar: AppBar(title: const Text('Settings · Wi-Fi')),
         body: ListView(padding: const EdgeInsets.all(20), children: [
-          Text(_status?.label ?? 'Device Wi-Fi'),
-          if (_currentNetwork.isNotEmpty)
-            Text('Current network: $_currentNetwork'),
-          if (_status?.state == 2) Text('IP address: ${_status!.ip}'),
-          Text(_message),
-          if (_status != null && !_status!.encrypted)
+          Text(model.status?.label ?? 'Device Wi-Fi'),
+          if (model.currentNetwork.isNotEmpty)
+            Text(
+                '${model.status?.state == 2 ? 'Connected to' : 'Last reported network'}: ${model.currentNetwork}'),
+          if (model.status?.state == 2 && model.status!.ip != '0.0.0.0')
+            Text('IP address: ${model.status!.ip}'),
+          Semantics(liveRegion: true, child: Text(model.message)),
+          if (model.busy)
+            const Icon(Icons.hourglass_top,
+                semanticLabel: 'Provisioning in progress'),
+          if (model.status != null && !model.status!.encrypted)
             const Text(
-                'Pair the device with an encrypted BLE link to send or forget credentials.'),
+                'Pair the device with an encrypted BLE link to send or forget credentials. Complete OS pairing, then refresh Wi-Fi status.'),
           TextButton(
-              onPressed: _available && !_busy ? _scan : null,
-              child: const Text('Change network · Scan Wi-Fi')),
+              onPressed: enabled ? model.scan : null,
+              child: Text(model.status?.state == 2
+                  ? 'Change network · Scan Wi-Fi'
+                  : 'Set Up Wi-Fi · Scan Wi-Fi')),
           TextButton(
-              onPressed: _available && !_busy
-                  ? () => _run(() async {
-                        final status = WifiStatus.decode(
-                            await widget.transport.readStatus());
-                        _update(() {
-                          _status = status;
-                          _message = status.state == 3
-                              ? provisioningError(
-                                  status.error == 0 ? 10 : status.error)
-                              : status.label;
-                        });
-                      })
-                  : null,
+              onPressed: enabled ? model.refresh : null,
               child: const Text('Refresh Wi-Fi status')),
           for (final network in networks)
             ListTile(
-                title: Text(
-                    network.ssid.isEmpty ? 'Hidden network' : network.ssid),
-                subtitle: Text(
-                    '${network.rssi} dBm · ${network.supported ? (network.auth == 0 ? 'Open' : 'Secured') : 'Unsupported in this version'}'),
-                onTap: !_busy && network.supported
-                    ? () => _update(() {
-                          _ssid.text = network.ssid;
-                          _password.clear();
-                        })
-                    : null),
+              title:
+                  Text(network.ssid.isEmpty ? 'Hidden network' : network.ssid),
+              subtitle: Text(
+                  '${network.rssi} dBm · ${network.supported ? (network.auth == 0 ? 'Open' : 'Secured') : 'Unsupported in this version'}'),
+              onTap: enabled && network.supported
+                  ? () => setState(() {
+                        _ssid.text = network.ssid;
+                        _clearPassword();
+                        _ssidFocus.requestFocus();
+                      })
+                  : null,
+            ),
+          TextButton(
+              onPressed: enabled
+                  ? () => setState(() {
+                        _ssid.clear();
+                        _clearPassword();
+                        _ssidFocus.requestFocus();
+                      })
+                  : null,
+              child: const Text('Other Network / Enter SSID Manually')),
           TextField(
               controller: _ssid,
-              enabled: !_busy,
+              focusNode: _ssidFocus,
+              enabled: enabled,
+              onChanged: (_) => setState(_clearPassword),
               decoration: const InputDecoration(labelText: 'SSID')),
+          if (open) const Text('Open network: no password required.'),
           TextField(
               controller: _password,
-              enabled: !_busy,
-              obscureText: true,
+              enabled: enabled && !open,
+              obscureText: !_showPassword,
               enableSuggestions: false,
               autocorrect: false,
-              decoration: const InputDecoration(
-                  labelText: 'Password (empty for open network)')),
+              decoration: InputDecoration(
+                  labelText: open
+                      ? 'No password required'
+                      : 'Password (empty for open network)',
+                  suffixIcon: IconButton(
+                      onPressed: enabled && !open
+                          ? () => setState(() => _showPassword = !_showPassword)
+                          : null,
+                      tooltip:
+                          _showPassword ? 'Hide password' : 'Show password',
+                      icon: Icon(_showPassword
+                          ? Icons.visibility_off
+                          : Icons.visibility)))),
           FilledButton(
-              onPressed: _available && !_busy ? () => _run(_save) : null,
+              onPressed: enabled ? _submit : null,
               child: const Text('Save and connect')),
           TextButton(
-              onPressed: _available && !_busy
-                  ? () => _run(() async {
-                        await _security();
-                        await _command(5, _transaction());
-                        _password.clear();
-                      })
+              onPressed: enabled
+                  ? () async {
+                      _clearPassword();
+                      await model.forget();
+                    }
                   : null,
               child: const Text('Forget network')),
           TextButton(
-              onPressed: _available && !_busy
-                  ? () => _run(() async {
-                        await _command(
-                            6,
-                            _credentialsTransaction != 0
-                                ? _credentialsTransaction
-                                : _transaction());
-                        _password.clear();
-                      })
+              onPressed: model.canCancel || enabled
+                  ? () async {
+                      _clearPassword();
+                      await model.cancel();
+                    }
                   : null,
-              child: const Text('Cancel provisioning')),
+              child: Text(model.credentialsAcknowledged && model.busy
+                  ? 'Stop waiting for connection'
+                  : 'Cancel provisioning')),
         ]));
   }
 }

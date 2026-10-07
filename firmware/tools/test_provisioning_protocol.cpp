@@ -95,7 +95,7 @@ constexpr bool credentialTests()
     for (unsigned i = 2; i < 20; ++i) object[i] = 'a' + i;
     CredentialStaging stage;
     stage.begin(0x10, 0);
-    if (feed(stage, object, 20, 0, 20) != OK || stage.commit(0x10) != OK ||
+    if (feed(stage, object, 20, 0, 13) != OK || feed(stage, object, 20, 13, 7) != OK || stage.commit(0x10) != OK ||
         stage.ssid[8] != 0 || stage.password[10] != 0) return false;
     // Out-of-order fragments, duplicate bytes, and incomplete COMMIT.
     stage.begin(0x10, 0);
@@ -114,7 +114,11 @@ constexpr bool credentialTests()
     object[0] = 32; object[1] = 63;
     for (unsigned i = 2; i < 97; ++i) object[i] = 'x';
     stage.begin(0x10, 0);
-    if (feed(stage, object, 97, 1, 96) != OK || stage.commit(0x10) != NO_STAGED_CREDENTIALS) return false;
+    for (unsigned offset = 1; offset < 97; offset += CHUNK_SIZE) {
+        const unsigned chunk = 97 - offset < CHUNK_SIZE ? 97 - offset : CHUNK_SIZE;
+        if (feed(stage, object, 97, offset, chunk) != OK) return false;
+    }
+    if (stage.commit(0x10) != NO_STAGED_CREDENTIALS) return false;
     if (feed(stage, object, 97, 0, 1) != OK || stage.commit(0x10) != OK ||
         stage.ssid[32] || stage.password[63]) return false;
     // Open network is valid; SSID must not be empty.
@@ -167,3 +171,68 @@ constexpr bool credentialTests()
     return true;
 }
 static_assert(credentialTests(), "Credential reassembly/validation/cleanup regression");
+
+constexpr bool strictValidationTests()
+{
+    const std::uint8_t utf8[] = {'A', 0xc3, 0xa9, 0xe4, 0xb8, 0xad, 0xf0, 0x9f, 0x94, 0x8b};
+    if (!validCredentialUtf8(utf8, sizeof(utf8))) return false;
+    const std::uint8_t invalid[][4] = {
+        {0xc0, 0x80}, {0xe0, 0x80, 0x80}, {0xed, 0xa0, 0x80},
+        {0xf4, 0x90, 0x80, 0x80}, {0x80}, {0xf5, 0x80, 0x80, 0x80}, {0xc3, 'A'}, {0}
+    };
+    const unsigned lengths[] = {2, 3, 3, 4, 1, 4, 2, 1};
+    for (unsigned i = 0; i < 8; ++i)
+        if (validCredentialUtf8(invalid[i], lengths[i])) return false;
+    if (validCredentialUtf8(utf8 + 1, 1)) return false; // Truncated code point.
+    CredentialStaging stage;
+    std::uint8_t object[20] = {1, 0, 'A'};
+    stage.begin(0x10, 0);
+    if (feed(stage, object, 20, 0, 14) != FRAGMENT_ERROR || stage.count) return false;
+    if (feed(stage, object, 3, 0, 3, 0x10, 60000) != TIMEOUT || stage.count) return false;
+    if (!stage.expire(60000) || !erased(stage)) return false;
+    const std::uint8_t unicodeObject[] = {2, 0, 0xc3, 0xa9};
+    stage.begin(0x10, 0);
+    if (feed(stage, unicodeObject, 4, 0, 4) != OK || stage.commit(0x10) != OK) return false;
+    stage.begin(0x11, 20); // BEGIN replaces and clears previous staging.
+    if (stage.count || stage.complete || stage.raw[2] || stage.ssid[0] ||
+        stage.commit(0x10) != TRANSACTION_MISMATCH) return false;
+    const std::uint8_t badSsid[] = {2, 0, 0xc0, 0x80};
+    stage.begin(0x10, 0);
+    if (feed(stage, badSsid, 4, 0, 4) != INVALID_SSID) return false;
+    const std::uint8_t badPassword[] = {1, 8, 'A', 0xed, 0xa0, 0x80, 'a', 'b', 'c', 'd', 'e'};
+    stage.begin(0x10, 0);
+    if (feed(stage, badPassword, 11, 0, 11) != INVALID_PASSWORD) return false;
+    for (unsigned command = GET_STATUS; command <= CANCEL; ++command) {
+        for (unsigned transaction = 1; transaction <= 255; ++transaction) {
+            std::uint8_t response[6]{};
+            encodeResponse(response, ACK, transaction, command, OK);
+            if (response[0] != 1 || response[1] != ACK || response[2] != transaction ||
+                response[3] != 2 || response[4] != command || response[5] != OK) return false;
+        }
+    }
+    return true;
+}
+static_assert(strictValidationTests(), "UTF-8, chunk limit, expiry, replacement and ACK regression");
+
+constexpr bool networkInfoTests()
+{
+    std::uint8_t object[MAX_NETWORK_INFO_SIZE]{};
+    object[0] = MAX_SSID_SIZE;
+    for (unsigned i = 1; i <= MAX_SSID_SIZE; ++i) object[i] = 'S';
+    object[33] = 192; object[34] = 168; object[35] = 1; object[36] = 42;
+    object[37] = static_cast<std::uint8_t>(-47);
+    unsigned count = 0;
+    for (unsigned offset = 0; offset < sizeof(object); offset += CHUNK_SIZE) {
+        std::uint8_t packet[NOTIFICATION_SIZE]{};
+        const unsigned size = encodeFragment(packet, 0, 0, object, sizeof(object), offset, NETWORK_INFO);
+        if (!size || size > 20 || packet[1] != 3 || packet[2] || packet[3] || packet[4] != offset ||
+            packet[5] != sizeof(object) || packet[6] != size - 7) return false;
+        for (unsigned i = 0; i < packet[6]; ++i)
+            if (packet[7 + i] != object[offset + i]) return false;
+        count += packet[6];
+    }
+    std::uint8_t packet[NOTIFICATION_SIZE]{};
+    return count == 38 && encodeFragment(packet, 0, 0, object, 39, 0, NETWORK_INFO) == 0 &&
+        encodeFragment(packet, 0, 0, object, 38, 0, WIFI_CREDENTIALS) == 0;
+}
+static_assert(networkInfoTests(), "NETWORK_INFO default-MTU fragmentation regression");

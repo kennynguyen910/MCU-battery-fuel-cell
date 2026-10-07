@@ -1,10 +1,10 @@
-# BLE Wi-Fi status and scanning (protocol version 1)
+# BLE Wi-Fi provisioning (protocol version 1)
 
 Path convention: ESP-IDF commands and firmware paths (main/, components/, tools/, sdkconfig) are relative to firmware/. Shared compatibility tools run from the repository root.
 
 Implemented: status READ/NOTIFY, GET_STATUS, asynchronous START_SCAN, fragmented
 scan results, and BLE credential staging/save/apply/clear. Credential operations
-require link encryption by default. No phone-app, pairing/passkey UI, SoftAP,
+require encryption and authenticated pairing by default. No phone-app, OLED pairing UI, SoftAP,
 provisioning framework, or new measurement formats are included.
 
 ## GATT layout
@@ -51,6 +51,13 @@ queue fills, intermediate snapshots may be dropped and current status is resynce
 State-change packets describe the transition snapshot; READ always queries current
 state. The IP cache is cleared on disconnect. Notification acceptance does not
 confirm phone delivery; READ/GET_STATUS remain available for synchronization.
+
+On CONNECTED, Data also sends unsolicited NETWORK_INFO (type `03`, transaction
+and object ID zero). Its object is `[SSID_length, SSID, IPv4[4], signed_RSSI]`, at
+most 38 bytes, fragmented into at most three 13-byte chunks. The Wi-Fi state
+listener obtains an AP snapshot without reading credentials/NVS; the host sends
+notifications. This object never contains a password. Data subscription is
+required; notification failure does not change whether Wi-Fi has connected.
 
 ## Control messages
 
@@ -175,6 +182,8 @@ A new client may see BUSY until that scan finishes.
     continue near 10 Hz alongside provisioning. Repeat on ESP32-S3 later.
 
 Compile-time parser/fragment tests live in `tools/test_provisioning_protocol.cpp`.
+The complete deterministic [firmware acceptance procedure](../firmware/tools/provisioning_manual_test.md)
+covers credential/NVS/security/disconnect cases, ACK ordering, and acquisition checks.
 They cover all six commands/all valid transaction IDs, short/oversized inputs,
 unsupported version/command, reserved transaction, payload mismatch, exact scan
 fragment reconstruction, and credential reassembly/validation/cleanup cases. Hardware persistence,
@@ -185,17 +194,24 @@ radio coexistence, stack headroom, and sustained timing still require board test
 
 The provisioning states are IDLE, SCANNING, RECEIVING_CREDENTIALS, and
 APPLYING_CREDENTIALS. Scan delivery owns SCANNING until SCAN_COMPLETE. Receiving
-or applying credentials blocks new scans and other incompatible operations with
-BUSY. GET_STATUS remains available. CLEAR uses APPLYING_CREDENTIALS too.
+blocks scans but allows BEGIN replacement or CLEAR. Applying blocks incompatible
+operations with BUSY. GET_STATUS remains available. CLEAR uses APPLYING_CREDENTIALS too.
 
 A single authorization helper gates BEGIN, credential Data, COMMIT, and CLEAR.
-By default the existing NimBLE link must be encrypted; otherwise ERROR `05` is
-returned without accepting or applying credentials. Pair/bond through nRF Connect
-if supported by the phone/stack, then read Status to verify flag bit 3 (`08`).
-No new pairing UI, passkey policy, bonding configuration, or measurement-service
-security requirements were added. Encryption alone does not establish an
-application-level authorized owner or guarantee authenticated/MITM-resistant
-pairing; final pairing/authorization UX remains future work.
+The NimBLE link must be encrypted and authenticated; otherwise ERROR `05` is
+returned and staging is erased without changing persistent credentials. The
+peripheral initiates security on connection, requests Secure Connections with
+MITM protection and bonding, and presents a fresh six-digit pairing passkey on
+the serial monitor. Enter it in the phone's OS pairing dialog. No callback waits
+for console input. Fresh builds enable Secure Connections only, NVS bond storage,
+and one BLE connection. Existing sdkconfigs must enable those settings in
+menuconfig too; sdkconfig.defaults does not override a previously generated config.
+The runtime also rejects additional clients to protect session ownership.
+Status bit 3 still reports actual encryption, not authentication; sensitive
+operations check both independently. Existing measurement GATT properties stay
+unchanged. An OLED pairing display and owner authorization UX remain later work.
+An unexpected repeat-pair request is rejected rather than silently replacing a
+bond. Wi-Fi CLEAR does not delete BLE bonds.
 
 For explicit development testing only, set
 `BATTERY_MONITOR_ALLOW_INSECURE_PROVISIONING_DEV` to `1` in
@@ -205,7 +221,8 @@ returned to `0` for final firmware. The status encryption flag still reports the
 actual link state even with the bypass enabled. CANCEL is permitted without
 current encryption because it can only discard the current link's RAM staging.
 
-BEGIN `01 03 TT 00` starts a credential transaction and ACKs. It does not touch
+BEGIN `01 03 TT 00` replaces any receiving transaction, erases its buffers, creates
+new staging, arms the timeout, and then ACKs. It does not touch
 NVS or the current Wi-Fi connection. Only one transaction is active. A rolling
 60-second inactivity timeout starts at BEGIN and restarts on each accepted
 fragment, including identical duplicates. Complete but uncommitted objects also
@@ -220,7 +237,9 @@ Message type `01` is WIFI_CREDENTIALS; object ID must be zero. SCAN_RESULT stays
 Total length must exactly equal `2 + SSID_length + password_length`, at most 97.
 
 SSID must be 1-32 bytes. Password must be empty for an open network or 8-63 bytes
-for a WPA passphrase, matching the existing WiFiManager validation. Nonempty
+for a WPA passphrase, matching the existing WiFiManager validation. SSIDs and
+passwords must be valid UTF-8 (no overlong encodings, surrogates, truncation, or
+code points above U+10FFFF). Manually entered SSIDs need not occur in a scan. Nonempty
 passwords shorter than eight bytes and embedded NUL bytes are rejected rather
 than silently truncated by the existing NVS string API. The BLE format does not
 accept the existing storage API's optional 64-hex raw PSK. Counts are byte lengths,
@@ -233,27 +252,34 @@ fragment before changing staging. Every required byte must be present before
 COMMIT. Parsed output uses 33-byte SSID and 64-byte password buffers, terminated
 locally. Total length must remain constant throughout a transaction, chunk length
 must be nonzero, and the actual write must exactly contain the declared chunk.
-At MTU 23 send at most 13 object bytes per Data write; larger negotiated MTUs may
-carry larger chunks within the same bounded object limit.
+Every Data write carries at most 13 object bytes, including at larger MTUs.
 
 Accepted fragments receive the normal ATT Write Response, not a separate Control
 ACK. Data errors are Control ERROR messages using original opcode BEGIN (`03`)
-and the incoming transaction ID. Invalid framing/mismatched transactions preserve
-existing staging for retry; a fully reassembled invalid object is securely erased
-and ends the transaction. Start again with BEGIN after that error.
+and the incoming transaction ID. Malformed/mismatched fragments and invalid
+objects securely erase staging and end the transaction. Start again with BEGIN
+after that error. Expiry is checked on incoming Data and COMMIT as well as by the
+host timer, so a delayed timeout event cannot admit stale credentials.
 
 ## Commit, clear, cancel, and disconnect
 
 COMMIT `01 04 TT 00` requires the matching transaction and a complete valid object.
-It ACKs acceptance, moves to APPLYING_CREDENTIALS, transfers a bounded copy to the
-existing scan/provisioning worker, and wipes host staging. The worker calls
-`WiFiManager::saveCredentials()`, wipes its input copy, and on success calls
-`applyStoredCredentials()`. That method reloads NVS, restarts station operation,
-and initiates connection without waiting for DHCP. No NVS access occurs in the
-BLE implementation. WiFiManager remains the source of truth for CONNECTING,
-CONNECTED, CONNECTION_FAILED, and normal retries. Accepted work is not rolled
-back if BLE disconnects after COMMIT: it finishes and wipes the worker copy, while
-transaction responses for the old BLE session are discarded. Provisioning returns
+It moves to APPLYING_CREDENTIALS, transfers a bounded copy to the existing
+scan/provisioning worker, and wipes host staging. The worker calls
+`WiFiManager::saveCredentials()` and wipes its input copy on success or failure.
+On success, a host completion event sends the matching COMMIT ACK (transaction
+and opcode `04`) and then wakes the worker again to call
+`applyStoredCredentials()`. NVS failure returns ERROR `09` without a success ACK.
+The ACK confirms persistence, not successful Wi-Fi association. Apply reloads NVS, restarts station operation,
+and initiates connection without waiting for DHCP. No NVS access occurs in BLE
+callbacks. WiFiManager remains the source of truth for CONNECTING,
+CONNECTED, CONNECTION_FAILED, and normal retries. A disconnect invalidates
+receiving staging immediately. A queued COMMIT/CLEAR is discarded if the worker
+has not started it. Once NVS work has started, the submitted durable command can
+finish even if disconnect occurs before the ACK reaches the phone. Resolve that
+uncertain outcome by reading status after reconnecting; losing the ACK does not
+undo NVS. After a successful COMMIT ACK, disconnect never clears saved credentials
+or stops Wi-Fi apply. Transaction responses for the old BLE session are discarded. Provisioning returns
 to IDLE after save/apply returns; it does not remain busy until DHCP finishes.
 
 The existing `wifi_cfg` namespace and `ssid`/`password` keys are unchanged. BEGIN,
@@ -266,17 +292,19 @@ reconfigure the currently running Wi-Fi link. Retry provisioning to recover.
 Wrong passwords that save successfully remain stored and cause the existing
 connection-failure/retry behavior until replaced or cleared.
 
-CLEAR `01 05 TT 00` is accepted only when IDLE. After ACK, the same worker calls
-`clearCredentials()`, stopping Wi-Fi and erasing only the two credential keys,
-then `applyStoredCredentials()` to restart the unprovisioned scan-capable radio.
+CLEAR `01 05 TT 00` is accepted when IDLE or receiving; receiving staging is
+discarded. The worker calls `clearCredentials()`, stopping Wi-Fi and erasing only
+the two credential keys. Only after successful NVS removal does the host send
+the matching CLEAR ACK; then the worker calls `applyStoredCredentials()` to
+restart the unprovisioned scan-capable radio.
 Runtime reload explicitly disables development seeding and reuses initialized
 NVS; CLEAR does not erase the full partition. Leave `WIFI_ENABLE_DEVELOPMENT_SEED`
 at `0`, or a later reboot can still reseed the development credentials. NVS
 failure reports `09`; radio restart failure reports `0F`. A partial clear may
 leave incomplete credentials, and the cached stored flag is cleared conservatively.
 
-CANCEL `01 06 TT 00` requires the matching receiving transaction. It ACKs, stops
-the timeout, securely wipes staging, and returns to IDLE without modifying Wi-Fi
+CANCEL `01 06 TT 00` requires the matching receiving transaction. It stops
+the timeout, securely wipes staging, returns to IDLE, and ACKs without modifying Wi-Fi
 or NVS. A receiving transaction (complete or incomplete) is also discarded on BLE
 disconnect/reset. CANCEL cannot undo a worker operation already accepted by COMMIT
 or CLEAR; those return BUSY. Disconnect never waits for the worker.
