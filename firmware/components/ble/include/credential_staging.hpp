@@ -6,6 +6,34 @@ inline constexpr unsigned MAX_PASSWORD_SIZE = 63;
 inline constexpr unsigned MAX_CREDENTIAL_SIZE = 2 + MAX_SSID_SIZE + MAX_PASSWORD_SIZE;
 inline constexpr std::uint32_t CREDENTIAL_TIMEOUT_MS = 60000;
 
+// Strict UTF-8, excluding NUL because wifi_cfg stores terminated strings.
+constexpr bool validCredentialUtf8(const std::uint8_t* bytes, unsigned length)
+{
+    for (unsigned i = 0; i < length;) {
+        const auto first = bytes[i++];
+        if (!first) return false;
+        if (first < 0x80) continue;
+        unsigned remaining = 0;
+        std::uint32_t code = 0, minimum = 0;
+        if (first >= 0xc2 && first <= 0xdf) {
+            remaining = 1; code = first & 0x1f; minimum = 0x80;
+        } else if (first >= 0xe0 && first <= 0xef) {
+            remaining = 2; code = first & 0x0f; minimum = 0x800;
+        } else if (first >= 0xf0 && first <= 0xf4) {
+            remaining = 3; code = first & 7; minimum = 0x10000;
+        } else return false;
+        if (remaining > length - i) return false;
+        while (remaining--) {
+            const auto next = bytes[i++];
+            if ((next & 0xc0) != 0x80) return false;
+            code = (code << 6) | (next & 0x3f);
+        }
+        if (code < minimum || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
+            return false;
+    }
+    return true;
+}
+
 // Pure, hardware-independent reassembly. The owning BLE class uses secureZero
 // when discarding this object; clear() also supports compile-time protocol tests.
 struct CredentialStaging {
@@ -63,9 +91,10 @@ struct CredentialStaging {
         if (bytes[1] != WIFI_CREDENTIALS) return INVALID_COMMAND;
         const auto error = checkTransaction(bytes[2]);
         if (error != OK) return error;
+        if (expired(now)) return TIMEOUT;
         const unsigned offset = bytes[4], size = bytes[5], chunk = bytes[6];
         if (bytes[3] != 0 || size < 2 || size > MAX_CREDENTIAL_SIZE ||
-            (total && size != total) || !chunk || length != DATA_HEADER_SIZE + chunk ||
+            (total && size != total) || !chunk || chunk > CHUNK_SIZE || length != DATA_HEADER_SIZE + chunk ||
             offset >= size || chunk > size - offset) return FRAGMENT_ERROR;
         // Check all overlaps before copying anything: identical duplicates are
         // harmless; conflicting overlap cannot partially corrupt a valid object.
@@ -89,10 +118,8 @@ struct CredentialStaging {
         if (!ssid_length || ssid_length > MAX_SSID_SIZE) return INVALID_SSID;
         if (password_length > MAX_PASSWORD_SIZE || total != 2 + ssid_length + password_length ||
             (password_length != 0 && password_length < 8)) return INVALID_PASSWORD;
-        // NVS uses C strings: embedded NULs must not silently truncate credentials.
-        for (unsigned i = 0; i < ssid_length; ++i) if (raw[2 + i] == 0) return INVALID_SSID;
-        for (unsigned i = 0; i < password_length; ++i)
-            if (raw[2 + ssid_length + i] == 0) return INVALID_PASSWORD;
+        if (!validCredentialUtf8(raw + 2, ssid_length)) return INVALID_SSID;
+        if (!validCredentialUtf8(raw + 2 + ssid_length, password_length)) return INVALID_PASSWORD;
         for (unsigned i = 0; i < ssid_length; ++i) ssid[i] = raw[2 + i];
         for (unsigned i = 0; i < password_length; ++i) password[i] = raw[2 + ssid_length + i];
         ssid[ssid_length] = password[password_length] = 0;

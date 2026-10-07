@@ -31,6 +31,7 @@ private:
     void encodeStatus(std::uint8_t (&out)[provisioning_protocol::STATUS_SIZE]);
     bool notify(std::uint16_t handle, bool subscribed, const std::uint8_t* data, unsigned length);
     void notifyStatus();
+    void notifyNetworkInfo(const WiFiScanResult& network, const std::uint8_t ipv4[4]);
     bool response(std::uint8_t opcode, std::uint8_t transaction, std::uint8_t command, std::uint8_t result);
     void fail(std::uint8_t transaction, std::uint8_t command, std::uint8_t error);
     void finish();
@@ -48,6 +49,7 @@ private:
     WiFiCredentials worker_credentials_{};
     std::uint8_t work_opcode_ = provisioning_protocol::START_SCAN;
     std::uint8_t work_error_{};
+    bool work_apply_{}; // Host/worker handoff: persist, host ACK, then apply.
     ble_npl_callout timeout_callout_{};
     bool credential_runtime_ready_{};
     bool initializeCredentials();
@@ -67,6 +69,7 @@ private:
         std::uint32_t session;
         bool stored;
         std::uint8_t ipv4[4];
+        WiFiScanResult network;
     };
     static constexpr unsigned STATUS_QUEUE_LENGTH = 8;
     StaticQueue_t status_queue_storage_{};

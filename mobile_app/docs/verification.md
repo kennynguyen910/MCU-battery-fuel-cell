@@ -1,5 +1,28 @@
 # Verification record
 
+## 2026-10-06 Flutter BLE credential workflow completion
+
+- Final full Flutter suite: **92 tests passed**, including **43 provisioning
+  tests** (23 controller, 8 workflow UI, 7 existing settings, 5 protocol).
+- Final `flutter analyze --no-pub`: **no issues found**.
+- Formatter check: **8 provisioning files, 0 changes**. Scoped Git whitespace
+  checks passed; application measurement/API/database code was not changed.
+- New coverage includes SSID confirmation, show/hide, manual and open networks,
+  password cleanup, matching/stale ACKs, active cancellation, COMMIT/save
+  uncertainty, immediate ACK/disconnect ordering, result polling/deadlines,
+  encryption rejection/loss, failure and retry without app restart.
+- Android debug build was attempted but could not run because this checkout's
+  Android SDK is absent. No updated APK, iOS build or physical radio acceptance
+  is claimed. Use the existing optional Android setup/build launchers.
+- Firmware was not modified, moved, built or flashed. Documented firmware
+  credential handling/security/NVS integration remains a physical-test blocker.
+- Protocol v1 has no distinct authentication-failure versus missing-network
+  result. The client preserves that contract and reports general failure or
+  the existing explicit timeout/invalid-password code without guessing a cause.
+- See [workflow and physical-test procedure](ble-wifi-physical-test.md) for the
+  exact packet formats, firmware expectations, security limits and test steps.
+
+
 ## 2026-09-29 BLE Wi-Fi provisioning integration
 
 - All 29 API tests passed with real local PostgreSQL; none skipped.

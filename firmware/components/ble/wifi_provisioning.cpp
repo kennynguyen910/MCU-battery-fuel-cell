@@ -91,6 +91,8 @@ void WiFiProvisioning::reset()
 
 void WiFiProvisioning::gapEvent(const ble_gap_event& event)
 {
+    if ((event.type == BLE_GAP_EVENT_SUBSCRIBE && event.subscribe.conn_handle != connection_) ||
+        (event.type == BLE_GAP_EVENT_ENC_CHANGE && event.enc_change.conn_handle != connection_)) return;
     if (event.type == BLE_GAP_EVENT_CONNECT && event.connect.status == 0) {
         reset();
         connection_ = event.connect.conn_handle;
@@ -102,6 +104,9 @@ void WiFiProvisioning::gapEvent(const ble_gap_event& event)
         if (event.subscribe.attr_handle == control_handle_) control_subscribed_ = subscribed;
         if (event.subscribe.attr_handle == data_handle_) data_subscribed_ = subscribed;
         if (event.subscribe.attr_handle == status_handle_) status_subscribed_ = subscribed;
+    } else if (event.type == BLE_GAP_EVENT_ENC_CHANGE) {
+        if (!provisioningSecuritySatisfied()) discardCredentials();
+        notifyStatus();
     }
 }
 
@@ -151,7 +156,8 @@ void WiFiProvisioning::notifyStatus()
 bool WiFiProvisioning::response(std::uint8_t opcode, std::uint8_t transaction,
                                 std::uint8_t command, std::uint8_t result)
 {
-    const std::uint8_t bytes[] = {VERSION, opcode, transaction, 2, command, result};
+    std::uint8_t bytes[6];
+    encodeResponse(bytes, opcode, transaction, command, result);
     return notify(control_handle_, control_subscribed_, bytes, sizeof(bytes));
 }
 
@@ -162,10 +168,11 @@ void WiFiProvisioning::fail(std::uint8_t transaction, std::uint8_t command, std:
         ESP_LOGW(TAG, "Provisioning error response unavailable");
 }
 
-int WiFiProvisioning::access(std::uint16_t, std::uint16_t handle,
+int WiFiProvisioning::access(std::uint16_t connection, std::uint16_t handle,
                              ble_gatt_access_ctxt* ctxt, void* arg)
 {
     auto& self = *static_cast<WiFiProvisioning*>(arg);
+    if (connection != self.connection_) return BLE_ATT_ERR_UNLIKELY;
     if (handle == self.status_handle_ && ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         std::uint8_t bytes[STATUS_SIZE];
         self.encodeStatus(bytes);
@@ -184,7 +191,10 @@ int WiFiProvisioning::access(std::uint16_t, std::uint16_t handle,
         return BLE_ATT_ERR_UNLIKELY;
     const auto error = validateControl(header, length);
     if (error != OK) {
+        if (self.state_ == ProvisioningState::RECEIVING_CREDENTIALS &&
+            header[1] >= BEGIN_CREDENTIALS && header[1] <= CANCEL) self.discardCredentials();
         self.fail(header[2], header[1], error);
+        self.notifyStatus();
         return 0;
     }
     // A write cannot be accepted without a way to send the protocol ACK.

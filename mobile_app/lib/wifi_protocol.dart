@@ -37,11 +37,17 @@ class WifiNetwork {
 
 List<int> credentialObject(String ssid, String password) {
   final name = utf8.encode(ssid), secret = utf8.encode(password);
-  if (name.length > 32)
-    throw const FormatException('SSID must contain at most 32 UTF-8 bytes');
-  if (secret.length > 63)
-    throw const FormatException('Password must contain at most 63 UTF-8 bytes');
-  return [name.length, secret.length, ...name, ...secret];
+  try {
+    if (name.length > 32)
+      throw const FormatException('SSID must contain at most 32 UTF-8 bytes');
+    if (secret.length > 63)
+      throw const FormatException(
+          'Password must contain at most 63 UTF-8 bytes');
+    return [name.length, secret.length, ...name, ...secret];
+  } finally {
+    // The returned object is wiped by its owner; clear temporary UTF-8 copies too.
+    secret.fillRange(0, secret.length, 0);
+  }
 }
 
 Iterable<List<int>> credentialFragments(
@@ -116,9 +122,10 @@ String provisioningError(int code) => switch (code) {
       7 => 'Invalid network name.',
       8 => 'Invalid password. Edit it and retry.',
       9 => 'Device could not save the network.',
-      10 ||
+      10 =>
+        'Unable to connect. Check the password and network availability, then retry. The device did not report a more specific cause.',
       11 =>
-        'Unable to connect. Check the password and network availability, then retry.',
+        'Wi-Fi connection timed out. Check that the network is available, then retry.',
       12 || 13 || 14 => 'Provisioning transaction failed. Start again.',
       _ => 'Device rejected the operation (code $code).',
     };
