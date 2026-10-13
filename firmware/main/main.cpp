@@ -1,4 +1,10 @@
+#include "sdkconfig.h"
+#if CONFIG_BATTERY_ADC_SOURCE_REAL
+#error "Real hardware ADC data is not yet available. Implement and validate the hardware driver first."
+#endif
+#if CONFIG_BATTERY_ADC_SOURCE_FAKE
 #include "fake_adc.hpp"
+#endif
 #include "board_config.hpp"
 #include "wifi_manager.hpp"
 #include "acquisition_task.hpp"
@@ -27,9 +33,14 @@ extern "C" void app_main()
         }
     }
 
-    // Static lifetime keeps Wi-Fi callbacks and Stage 2 task references valid.
+    // Source selection does not disable independent Wi-Fi/BLE provisioning.
     static WiFiManager wifi;
-
+    static Diagnostics diagnostics;
+    static LatestFrameStore latest;
+#if CONFIG_BATTERY_ADC_SOURCE_FAKE
+    ESP_LOGW(TAG, "========================================");
+    ESP_LOGW(TAG, "ADC SOURCE: FAKE / SIMULATED DATA");
+    ESP_LOGW(TAG, "========================================");
     static FakeADC adc;
     ADCInterface& source = adc;
     if (!source.init()) {
@@ -37,19 +48,19 @@ extern "C" void app_main()
         return;
     }
 
-    static Diagnostics diagnostics;
-    static LatestFrameStore latest;
     static UdpTransport udp;
     static NetworkConsumer network_consumer(wifi, udp, diagnostics);
-    ESP_LOGI(TAG, "UDP destination: %s:%u", udp_config::UDP_DESTINATION_IP,
-             static_cast<unsigned>(udp_config::UDP_DESTINATION_PORT));
+    ESP_LOGI(TAG, "UDP destination: configured Android collector (no default)");
     static Acquisition acquisition(source, diagnostics, &latest);
     if (!acquisition.start(&NetworkConsumer::consumeFrame, &network_consumer,
                            &NetworkConsumer::flushExpired)) {
         ESP_LOGE(TAG, "Acquisition startup failed");
         return;
     }
-    // Acquisition is already running before any NVS or Wi-Fi initialization.
+#else
+    ESP_LOGW(TAG, "ADC SOURCE: DISABLED / NO MEASUREMENTS");
+#endif
+    // Enabled acquisition is already running before NVS or Wi-Fi initialization.
     if (!wifi.init() || !wifi.start()) {
         ESP_LOGE(TAG, "Wi-Fi startup failed; acquisition and BLE startup continue");
     }
@@ -57,7 +68,11 @@ extern "C" void app_main()
         static BLEManager ble(latest, diagnostics,
             [](void* context) { return static_cast<WiFiManager*>(context)->isConnected(); },
             &wifi, wifi);
+#if CONFIG_BATTERY_ADC_SOURCE_FAKE
         ble.setAcquisitionRunning(true);
+#else
+        ble.setAcquisitionRunning(false);
+#endif
         if (!ble.init() || !ble.start()) {
             ESP_LOGE(TAG, "BLE startup failed; acquisition and Wi-Fi continue");
         }

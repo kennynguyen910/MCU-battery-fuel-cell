@@ -1,6 +1,7 @@
 // Decoder for MCU-battery-fuel-cell protocol v1 (88-byte measurements and
 // 10-byte UDP batch envelope). The firmware's monotonic time is not UTC.
 const FRAME_SIZE = 88;
+export const SAMPLE_STATUS_SIMULATED = 0x80000000;
 
 export function crc32(bytes) {
   let crc = 0xffffffff;
@@ -26,6 +27,7 @@ function frameAt(datagram, offset) {
     timestampUs: frame.readBigUInt64BE(8).toString(),
     channels: Array.from({length: 16}, (_, i) => frame.readInt32BE(16 + i * 4) / 1_000_000),
     deviceStatus: frame.readUInt32BE(80),
+    adcSource: (frame.readUInt32BE(80) & SAMPLE_STATUS_SIMULATED) ? 'SIMULATED' : 'UNKNOWN',
   };
 }
 

@@ -128,6 +128,8 @@ int WiFiProvisioning::credentialControl(const std::uint8_t* header)
         if (opcode == COMMIT_CREDENTIALS) {
             std::memcpy(worker_credentials_.ssid, staged_.ssid, sizeof(staged_.ssid));
             std::memcpy(worker_credentials_.password, staged_.password, sizeof(staged_.password));
+            std::memcpy(worker_credentials_.collector_ipv4, staged_.collector_ipv4, 4);
+            worker_credentials_.collector_port = staged_.collector_port;
         }
         discardCredentials();
         state_ = ProvisioningState::APPLYING_CREDENTIALS;

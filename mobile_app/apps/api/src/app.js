@@ -67,7 +67,8 @@ export function createApp(store, { auth, simulation, demo = false } = {}) {
         recordedAt: new Date().toISOString(),
         channels: request.body?.channels,
       }]);
-      inputFrame = { ...sample, frameId: crypto.randomUUID() };
+      inputFrame = { ...sample, frameId: crypto.randomUUID(), adcSource: 'MANUAL',
+        deviceStatus: 0x80000000, receivedAt: sample.recordedAt };
       response.status(201).json(inputFrame);
     } catch (error) { next(error); }
   });

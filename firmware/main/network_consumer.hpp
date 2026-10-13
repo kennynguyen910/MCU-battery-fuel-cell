@@ -23,6 +23,8 @@ private:
     batch_protocol::Datagram batch_{};
     std::uint16_t frame_count_ = 0;
     std::uint32_t batch_sequence_ = 0;
+    std::uint8_t collector_ip_[4]{};
+    std::uint16_t collector_port_{};
     std::int64_t first_frame_us_ = 0;
     WiFiManager& wifi_;
     UdpTransport& udp_;

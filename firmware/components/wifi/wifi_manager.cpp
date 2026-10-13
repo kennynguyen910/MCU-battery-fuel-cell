@@ -85,6 +85,7 @@ bool WiFiManager::init(bool allow_development_seed)
     WiFiCredentials credentials{};
     SensitiveScope credentials_scope(&credentials, sizeof(credentials));
     error = readCredentials(credentials);
+    publishCollector(error == ESP_OK ? credentials : WiFiCredentials{});
 #if WIFI_ENABLE_DEVELOPMENT_SEED
     // Only a missing namespace/key permits seeding; never overwrite a read error.
     if (allow_development_seed && error == ESP_ERR_NVS_NOT_FOUND) {
@@ -97,6 +98,7 @@ bool WiFiManager::init(bool allow_development_seed)
         }
         ESP_LOGI(TAG, "DEVELOPMENT: seeded Wi-Fi credentials into NVS");
         error = readCredentials(credentials);
+    publishCollector(error == ESP_OK ? credentials : WiFiCredentials{});
     }
 #else
     (void)allow_development_seed;

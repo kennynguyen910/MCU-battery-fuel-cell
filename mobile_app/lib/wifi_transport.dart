@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'wifi_protocol.dart';
 
 /// Safe user-facing error; platform exceptions must not expose write arguments.
@@ -32,10 +34,33 @@ class BleProvisioningTransport implements ProvisioningTransport {
   @override
   Future<void> discover() async {
     try {
-      await ble.discoverAllServices(deviceId);
-      final services = await ble.getDiscoveredServices(deviceId);
+      final deadline = DateTime.now().add(const Duration(seconds: 9));
+      late List<Service> services;
+      while (true) {
+        try {
+          await ble.discoverAllServices(deviceId);
+          services = await ble.getDiscoveredServices(deviceId);
+          break;
+        } on PlatformException catch (error) {
+          debugPrint('[provisioning] discovery code=${error.code}');
+          if (error.code != 'service_discovery_failure' ||
+              !(error.message ?? '').contains('Bonding is in progress') ||
+              DateTime.now().isAfter(deadline)) rethrow;
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+      }
+      debugPrint('[provisioning] discovered services=${services.length}');
       final service = services
           .where((service) => service.id == Uuid.parse(provisioningService));
+      debugPrint('[provisioning] serviceFound=${service.isNotEmpty}');
+      for (final uuid in [
+        provisioningControl,
+        provisioningData,
+        provisioningStatus
+      ]) {
+        debugPrint(
+            '[provisioning] characteristic=$uuid found=${service.isNotEmpty && service.first.characteristics.any((c) => c.id == Uuid.parse(uuid))}');
+      }
       if (service.isEmpty ||
           ![provisioningControl, provisioningData, provisioningStatus].every(
               (uuid) => service.first.characteristics.any(

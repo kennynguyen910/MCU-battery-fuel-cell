@@ -61,6 +61,16 @@ class StatTiles extends StatelessWidget {
           .toList());
 }
 
+class MeasurementSourceBadge extends StatelessWidget {
+  final String label;
+  const MeasurementSourceBadge(this.label, {super.key});
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.all(12),
+      color: Colors.amber.shade100,
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)));
+}
+
 class VoltageTiles extends StatelessWidget {
   final List<double?> values;
   const VoltageTiles(this.values, {super.key});
@@ -166,7 +176,7 @@ class NetworkLabPanel extends StatelessWidget {
                 'Missing frames are inferred from sequence gaps. Loss before the first or after the last received frame is not measurable. Counters accumulate across scenarios.'),
             const SizedBox(height: 8),
             const Text(
-                'The collector fetches buffered frames and uploads batches. A one-second screen refresh does not limit capture to one frame per second. Receiver retention is 10,000 frames; a delayed collector reports buffer losses.'),
+                'The collector fetches buffered frames and uploads batches. A one-second screen refresh does not limit capture to one frame per second. Receiver retention is 60,000 frames; a delayed collector reports buffer losses.'),
             TextButton.icon(
                 onPressed: data.isEmpty
                     ? null

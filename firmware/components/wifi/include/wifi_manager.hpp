@@ -18,6 +18,8 @@ enum class WiFiState {
 struct WiFiCredentials {
     char ssid[33]{};
     char password[65]{};
+    std::uint8_t collector_ipv4[4]{};
+    std::uint16_t collector_port{};
 };
 
 struct WiFiScanResult {
@@ -52,6 +54,7 @@ public:
     WiFiState getState() const;
     bool credentialsStored() const { return credentials_stored_.load(); }
     void getIPv4(std::uint8_t out[4]) const;
+    bool getCollectorEndpoint(std::uint8_t out[4], std::uint16_t& port) const;
     // Bounded AP query for the connected state listener: no password, NVS,
     // or association wait. An unavailable driver/connection returns false.
     bool getConnectedNetwork(WiFiScanResult& result) const;
@@ -79,6 +82,8 @@ private:
     void connect();
     void cleanup();
 
+    void publishCollector(const WiFiCredentials& credentials);
+    std::atomic<std::uint32_t> collector_version_{0}, collector_ip_{0}, collector_port_{0};
     esp_err_t readCredentials(WiFiCredentials& credentials) const;
 
     std::atomic<StateListener> state_listener_{nullptr};

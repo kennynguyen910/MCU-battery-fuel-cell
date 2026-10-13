@@ -13,6 +13,8 @@ if (!configuredDatabase) {
   process.env.DATABASE_URL = 'postgresql://capstone@127.0.0.1:55432/capstone';
   process.env.DATABASE_SSL_CA = '';
 }
+process.env.BENCH_DEVICE_UDP_ENABLED = '0';
+process.env.NETWORK_SIMULATION_ENABLED = '0';
 const port = Number(process.env.PORT || 3001);
 const apiUrl = `http://127.0.0.1:${port}`;
 const pageUrl = `http://localhost:5173/?api=${encodeURIComponent(apiUrl)}#/mobile`;
@@ -67,7 +69,7 @@ try {
     execFileSync(process.execPath, [path.join(root, 'tools/start-postgres.js')], {stdio: 'inherit', windowsHide: true});
   }
   const expectedLocation = ['localhost', '127.0.0.1'].includes(database.hostname) ? 'local' : 'remote';
-  await start('apps/api/src/server.js', `${apiUrl}/health`, value => value.service === 'capstone' && value.storage === 'postgres' && value.storageLocation === expectedLocation && value.networkSimulation === (process.env.NETWORK_SIMULATION_ENABLED === '1') && value.deviceReceiver === (process.env.DEVICE_UDP_ENABLED === '1' || Boolean(process.env.DEVICE_IP)));
+  await start('apps/api/src/server.js', `${apiUrl}/health`, value => value.service === 'capstone' && value.storage === 'postgres' && value.storageLocation === expectedLocation && value.networkSimulation === (process.env.NETWORK_SIMULATION_ENABLED === '1') && value.deviceReceiver === (process.env.BENCH_DEVICE_UDP_ENABLED === '1'));
   // Do not silently reuse an old API that is still running without login.
   const auth = await health(`${apiUrl}/api/auth/status`);
   if (!auth?.enabled || auth.demo) throw new Error('Close the old API window and run Start_Capstone.cmd again to apply login settings.');

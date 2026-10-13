@@ -67,6 +67,7 @@ class WifiProvisioning extends ChangeNotifier {
     if (_closed) return;
     phase = value;
     message = text;
+    debugPrint('[provisioning] phase=${value.name} available=$available');
     _emit();
   }
 
@@ -85,6 +86,11 @@ class WifiProvisioning extends ChangeNotifier {
 
   Future<void> initialize() async {
     final epoch = ++_epoch;
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    _subscriptions.clear();
+    available = false;
     _set(ProvisioningPhase.checkingStatus, 'Reading device Wi-Fi status…');
     try {
       await transport.discover().timeout(commandTimeout);
@@ -113,12 +119,13 @@ class WifiProvisioning extends ChangeNotifier {
         }, onError: (Object _) => _disconnected(), onDone: _disconnected));
       }
       available = true;
+      _set(ProvisioningPhase.ready,
+          'Provisioning discovered. Enter credentials.');
       final bytes = await transport.readStatus().timeout(commandTimeout);
       _check(epoch);
       _acceptStatus(WifiStatus.decode(bytes), refresh: true);
     } catch (error) {
       if (_closed || epoch != _epoch) return;
-      available = false;
       _set(ProvisioningPhase.failed, _error(error));
     }
   }
@@ -287,7 +294,8 @@ class WifiProvisioning extends ChangeNotifier {
     if (!value.encrypted) throw ProvisioningFailure(provisioningError(5));
   }
 
-  Future<void> provision(String ssid, String password) async {
+  Future<void> provision(String ssid, String password,
+      {String? collectorAddress, int collectorPort = 5005}) async {
     if (busy || !available) return;
     final epoch = ++_epoch;
     List<int>? object;
@@ -312,7 +320,8 @@ class WifiProvisioning extends ChangeNotifier {
             'Enter the password for this secured network.');
       }
       try {
-        object = credentialObject(ssid, selected?.auth == 0 ? '' : password);
+        object = credentialObject(ssid, selected?.auth == 0 ? '' : password,
+            collectorAddress: collectorAddress, collectorPort: collectorPort);
       } on FormatException catch (error) {
         throw ProvisioningFailure(error.message);
       }
@@ -323,8 +332,9 @@ class WifiProvisioning extends ChangeNotifier {
       await _command(3, _credentialsTransaction);
       _check(epoch);
       _set(ProvisioningPhase.sendingCredentials, 'Sending Wi-Fi credentials…');
-      for (final fragment
-          in credentialFragments(_credentialsTransaction, object)) {
+      for (final fragment in credentialFragments(
+          _credentialsTransaction, object,
+          withCollector: collectorAddress != null)) {
         try {
           _check(epoch);
           await transport

@@ -1,7 +1,7 @@
 #include "udp_transport.hpp"
-#include "udp_config.hpp"
 
 #include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include "lwip/inet.h"
 
@@ -10,20 +10,22 @@ UdpTransport::~UdpTransport()
     close();
 }
 
+bool UdpTransport::configure(const std::uint8_t ipv4[4], std::uint16_t port)
+{
+    if (!port || ipv4[0] == 0 || ipv4[0] == 127 || ipv4[0] >= 224) return false;
+    destination_ = {};
+    destination_.sin_family = AF_INET;
+    destination_.sin_port = htons(port);
+    std::memcpy(&destination_.sin_addr.s_addr, ipv4, 4);
+    return true;
+}
+
 bool UdpTransport::init()
 {
     if (isOpen()) {
         return true;
     }
-    destination_ = {};
-    destination_.sin_family = AF_INET;
-    destination_.sin_port = htons(udp_config::UDP_DESTINATION_PORT);
-    if (inet_pton(AF_INET, udp_config::UDP_DESTINATION_IP, &destination_.sin_addr) != 1 ||
-        destination_.sin_addr.s_addr == htonl(INADDR_ANY) ||
-        destination_.sin_addr.s_addr == htonl(INADDR_BROADCAST)) {
-        last_error_ = EINVAL;
-        return false;
-    }
+    if (!destination_.sin_port) { last_error_ = EDESTADDRREQ; return false; }
     socket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket_ < 0) {
         last_error_ = errno;

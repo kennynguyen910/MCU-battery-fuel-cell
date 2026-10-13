@@ -1,4 +1,6 @@
 CONFIG_IDF_TARGET="esp32s3"
+# Explicit development source. Without this default, acquisition is disabled.
+CONFIG_BATTERY_ADC_SOURCE_FAKE=y
 CONFIG_BT_ENABLED=y
 CONFIG_BT_BLUEDROID_ENABLED=n
 CONFIG_BT_NIMBLE_ENABLED=y

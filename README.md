@@ -109,3 +109,9 @@ python .\firmware\tools\udp_receiver.py
 For BLE testing, scan for **BatteryMonitor** in nRF Connect, connect, and subscribe to Voltage Data. An 80-byte voltage notification needs an ATT MTU of at least 83; request MTU 128 in the app if necessary. See the [BLE guide](docs/ble.md) for the characteristic formats and phone test.
 
 The firmware entry point is [`firmware/main/main.cpp`](firmware/main/main.cpp). The `firmware/examples/desktop/main.cpp` is an older desktop example and is not part of the ESP-IDF firmware build. More detail is in the [protocol](docs/protocol.md), [UDP transport](docs/udp-transport.md), [architecture](docs/architecture.md), and [test plan](docs/test-plan.md) documents.
+
+## Production Android measurement path
+
+ESP32 -> Wi-Fi/UDP -> Flutter Android App -> local capture journal -> HTTP API -> PostgreSQL -> Website.
+See [configuration and independent verification](docs/flutter-first-udp.md). The Node UDP receiver is bench-only;
+current firmware measurements are FakeADC simulations, not validated hardware ADC readings.

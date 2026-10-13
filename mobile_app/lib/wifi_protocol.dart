@@ -35,7 +35,25 @@ class WifiNetwork {
   }
 }
 
-List<int> credentialObject(String ssid, String password) {
+List<int> collectorIpv4(String address) {
+  final parts = address.split('.');
+  if (parts.length != 4 ||
+      parts.any((p) => !RegExp(r'^\d{1,3}$').hasMatch(p))) {
+    throw const FormatException('Enter the phone collector IPv4 address.');
+  }
+  final bytes = parts.map(int.parse).toList();
+  if (bytes.any((v) => v > 255) ||
+      bytes.first == 0 ||
+      bytes.first == 127 ||
+      bytes.first >= 224) {
+    throw const FormatException(
+        'Collector must be a unicast LAN IPv4 address.');
+  }
+  return bytes;
+}
+
+List<int> credentialObject(String ssid, String password,
+    {String? collectorAddress, int collectorPort = 5005}) {
   final name = utf8.encode(ssid), secret = utf8.encode(password);
   try {
     if (name.length > 32)
@@ -43,22 +61,36 @@ List<int> credentialObject(String ssid, String password) {
     if (secret.length > 63)
       throw const FormatException(
           'Password must contain at most 63 UTF-8 bytes');
-    return [name.length, secret.length, ...name, ...secret];
+    final endpoint =
+        collectorAddress == null ? <int>[] : collectorIpv4(collectorAddress);
+    if (collectorAddress != null &&
+        (collectorPort < 1 || collectorPort > 65535)) {
+      throw const FormatException('UDP port must be between 1 and 65535.');
+    }
+    return [
+      name.length,
+      secret.length,
+      ...name,
+      ...secret,
+      ...endpoint,
+      if (endpoint.isNotEmpty) collectorPort >> 8,
+      if (endpoint.isNotEmpty) collectorPort & 255
+    ];
   } finally {
     // The returned object is wiped by its owner; clear temporary UTF-8 copies too.
     secret.fillRange(0, secret.length, 0);
   }
 }
 
-Iterable<List<int>> credentialFragments(
-    int transaction, List<int> object) sync* {
-  if (transaction < 1 || transaction > 255 || object.length > 97) {
+Iterable<List<int>> credentialFragments(int transaction, List<int> object,
+    {bool withCollector = false}) sync* {
+  if (transaction < 1 || transaction > 255 || object.length > 103) {
     throw const FormatException('Invalid credential transaction');
   }
   for (var offset = 0; offset < object.length; offset += 13) {
     yield [
       1,
-      1,
+      withCollector ? 4 : 1,
       transaction,
       0,
       offset,

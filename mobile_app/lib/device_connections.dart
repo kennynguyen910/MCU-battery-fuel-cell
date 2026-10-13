@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -11,17 +12,21 @@ import 'device_packets.dart';
 import 'direct_capture.dart';
 import 'wifi_settings.dart';
 import 'wifi_transport.dart';
+import 'wifi_protocol.dart';
+import 'udp_receiver.dart';
 
 const _platform = MethodChannel('capstone/connectivity');
 final _service = Uuid.parse('5ecf0000-41c2-4cc4-9c96-640f406021d0');
 final _voltage = Uuid.parse('5ecf0001-41c2-4cc4-9c96-640f406021d0');
 
 /// Android direct transports. The parent collector pauses while this route owns
-/// the durable log. Returning true selects the existing Wi-Fi/UDP collector.
+/// the durable log. Wi-Fi collection is native UDP and stays on this route.
 class DeviceConnections extends StatefulWidget {
   final Api api;
   final CaptureLog? log;
-  const DeviceConnections({super.key, required this.api, this.log});
+  final String initialMode;
+  const DeviceConnections(
+      {super.key, required this.api, this.log, this.initialMode = 'BLE'});
   @override
   State<DeviceConnections> createState() => _DeviceConnectionsState();
 }
@@ -40,13 +45,84 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
   UsbPort? _port;
   UsbMeasurementLines _usbParser = UsbMeasurementLines();
   Timer? _timer, _scanTimer;
-  String _mode = 'BLE',
-      _status = 'Choose a connection.',
-      _network = 'Checking…';
+  late String _mode = widget.initialMode;
+  String _status = 'Choose a connection.', _network = 'Checking…';
   String? _serial, _session, _usbDeviceName, _bleDeviceId;
   bool _ready = false, _working = false, _linked = false, _scanning = false;
   bool _leaving = false, _allowPop = false;
   int _generation = 0;
+  late final _udp = NativeUdpReceiver(onSample: (frames, ip) {
+    if (_mode != 'Wi-Fi') return;
+    if (_serial == null) {
+      _serial = 'ESP32-UDP-$ip';
+      debugPrint('[collector] first UDP measurements sender=$ip');
+    }
+    _capture.addBatch(frames);
+  }, onError: (error) {
+    _capture.stop();
+    _show('UDP receiver error: $error');
+  });
+  final _udpPort = TextEditingController(text: '5005');
+  WifiStatus? _wifiStatus;
+  bool _apiReachable = false, _uploadActive = false, _credentialsSent = false;
+  String _apiStorage = 'unknown';
+  DateTime? _lastApiCheck;
+
+  Future<void> _startUdp() async {
+    final port = int.tryParse(_udpPort.text);
+    if (port == null || port < 1 || port > 65535)
+      throw StateError('Enter a valid UDP port.');
+    await _udp.start(port: port);
+    if (!mounted || _leaving || !_udp.active) return;
+    _linked = true;
+    debugPrint('[collector] UDP receiver active port=${_udp.port}');
+    _show('UDP receiver active on port ${_udp.port}. Keep this screen open.');
+  }
+
+  void _credentialsAcknowledged() {
+    if (!_credentialsSent)
+      debugPrint('[collector] Wi-Fi credentials acknowledged');
+    _credentialsSent = true;
+  }
+
+  void _acceptWifiStatus(WifiStatus status) {
+    if (_wifiStatus?.state != status.state) {
+      debugPrint('[collector] ESP32 Wi-Fi state=${status.label}');
+    }
+    _wifiStatus = status;
+    if (_mode == 'Wi-Fi' &&
+        status.state == 2 &&
+        status.ip != '0.0.0.0' &&
+        _udp.sourceIp != status.ip) {
+      // DHCP/network changes must not keep filtering for the old ESP32 address,
+      // or silently mix a new source into the previous capture session.
+      _capture.stop();
+      _capture.clearLive();
+      _serial = null;
+      _session = null;
+      _udp.sourceIp = status.ip;
+      debugPrint(
+          '[collector] UDP sender selected=${status.ip}; create a new session');
+    }
+  }
+
+  Future<void> _checkApi() async {
+    try {
+      final response = await widget.api.client
+          .get(Uri.parse('${widget.api.baseUrl}/health'))
+          .timeout(const Duration(seconds: 3));
+      final health = jsonDecode(response.body) as Map;
+      final reachable =
+          response.statusCode == 200 && health['service'] == 'capstone';
+      if (_apiReachable != reachable)
+        debugPrint('[collector] API reachable=$reachable');
+      _apiReachable = reachable;
+      _apiStorage = health['storage']?.toString() ?? 'unavailable';
+    } catch (_) {
+      if (_apiReachable) debugPrint('[collector] API unreachable');
+      _apiReachable = false;
+    }
+  }
 
   @override
   void initState() {
@@ -60,6 +136,7 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
       await _log.load();
       _network = await _platform.invokeMethod<String>('network') ?? 'Unknown';
       if (mounted) setState(() => _ready = true);
+      if (_mode == 'Wi-Fi') await _startUdp();
       _usbEvents = UsbSerial.usbEventStream?.listen((event) {
         if (event.event == UsbEvent.ACTION_USB_DETACHED &&
             event.device?.deviceName == _usbDeviceName) {
@@ -78,9 +155,18 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
 
   Future<void> _tick() async {
     if (!_ready || _leaving) return;
+    if (_lastApiCheck == null ||
+        DateTime.now().difference(_lastApiCheck!).inSeconds >= 3) {
+      _lastApiCheck = DateTime.now();
+      unawaited(_checkApi());
+    }
     try {
       await _capture.drain(upload: false);
       if (_leaving) return;
+      final uploading = _log.visiblePending(widget.api) > 0;
+      if (uploading != _uploadActive)
+        debugPrint('[collector] database upload active=$uploading');
+      _uploadActive = uploading;
       unawaited(_capture.uploadPending().catchError((Object error) {
         if (error is ApiException &&
             (error.statusCode == 401 ||
@@ -123,6 +209,7 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
 
   Future<void> _scanBle() async {
     await _disconnect();
+    if (_mode == 'Wi-Fi') await _startUdp();
     final sdk = await _platform.invokeMethod<int>('sdk') ?? 31;
     final permissions = sdk >= 31
         ? [Permission.bluetoothScan, Permission.bluetoothConnect]
@@ -160,6 +247,7 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
 
   Future<void> _connectBle(DiscoveredDevice device) async {
     await _disconnect();
+    if (_mode == 'Wi-Fi') await _startUdp();
     final generation = _generation;
     final connected = Completer<void>();
     _show('Connecting to ${device.name.isEmpty ? device.id : device.name}…');
@@ -174,16 +262,23 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
       } else if (update.connectionState == DeviceConnectionState.disconnected) {
         if (!connected.isCompleted)
           connected.completeError(StateError('ESP32 disconnected.'));
-        _linked = false;
-        _capture.stop();
-        _capture.clearLive();
-        _show('BLE disconnected. Reconnect and start capture again.');
+        _bleDeviceId = null;
+        if (_mode != 'Wi-Fi') {
+          _linked = false;
+          _capture.stop();
+          _capture.clearLive();
+        }
+        debugPrint('[collector] BLE disconnected');
+        _show('BLE disconnected. UDP reception is independent of BLE.');
       }
     }, onError: (Object error) {
       if (!connected.isCompleted) connected.completeError(error);
-      _linked = false;
-      _capture.stop();
-      _capture.clearLive();
+      _bleDeviceId = null;
+      if (_mode != 'Wi-Fi') {
+        _linked = false;
+        _capture.stop();
+        _capture.clearLive();
+      }
       _show('BLE connection failed: $error');
     });
     try {
@@ -193,9 +288,10 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
           .timeout(const Duration(seconds: 8));
       if (generation != _generation) return;
       _bleDeviceId = device.id;
-      _serial = 'ESP32-BLE-${device.id}';
+      if (_mode != 'Wi-Fi') _serial = 'ESP32-BLE-${device.id}';
+      debugPrint('[collector] BLE connected');
       _linked = true;
-      if (mtu >= 83)
+      if (mtu >= 83 && _mode != 'Wi-Fi')
         _values = _ble
             .subscribeToCharacteristic(QualifiedCharacteristic(
                 deviceId: device.id,
@@ -214,15 +310,21 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
           _linked = false;
           _show('BLE notifications failed: $error. Reconnect to retry.');
         });
-      _show(mtu >= 83
-          ? 'BLE connected · MTU $mtu · waiting for voltage notifications.'
-          : 'BLE connected · Wi-Fi setup available. Voltage notifications need MTU 83 or higher.');
+      _show(_mode == 'Wi-Fi'
+          ? 'BLE connected. UDP receiver remains independent.'
+          : mtu >= 83
+              ? 'BLE connected · MTU $mtu · waiting for voltage notifications.'
+              : 'BLE connected · Wi-Fi setup available. Voltage notifications need MTU 83 or higher.');
       if (mounted) {
         await Navigator.push(
             context,
             MaterialPageRoute(
                 builder: (_) => DeviceWifiSettings(
-                    transport: BleProvisioningTransport(_ble, device.id))));
+                    transport: BleProvisioningTransport(_ble, device.id),
+                    configureCollector: true,
+                    collectorPort: _udp.active ? _udp.port : 5005,
+                    onStatus: _acceptWifiStatus,
+                    onCredentialsAcknowledged: _credentialsAcknowledged)));
       }
     } catch (_) {
       await _disconnect();
@@ -286,7 +388,10 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
 
   Future<void> _disconnect() async {
     _generation++;
+    _credentialsSent = false;
     _capture.stop();
+    await _udp.close();
+    await _capture.drain(upload: false);
     _capture.clearLive();
     _linked = false;
     await _stopScan();
@@ -347,14 +452,15 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
     _connection?.cancel();
     _usbEvents?.cancel();
     _port?.close();
+    unawaited(_udp.close());
+    _udpPort.dispose();
     _name.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final fresh = _capture.receivedAt != null &&
-        DateTime.now().difference(_capture.receivedAt!).inSeconds < 5;
+    final fresh = !_capture.stale;
     final idle = _ready && !_working && !_leaving && !_capture.capturing;
     return PopScope(
       canPop: _allowPop,
@@ -384,18 +490,34 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
                   ? (value) => _run(() async {
                         await _disconnect();
                         setState(() => _mode = value.first);
-                        _show('Choose a connection.');
+                        if (_mode == 'Wi-Fi')
+                          await _startUdp();
+                        else
+                          _show('Choose a connection.');
                       })
                   : null),
           const SizedBox(height: 18),
           if (_mode == 'Wi-Fi')
             DemoSection(
-                title: 'Wi-Fi / Ethernet network',
+                title: 'Direct Wi-Fi / UDP collector',
                 subtitle: 'Phone network: $_network',
                 children: [
                   const Text(
-                      'Connect the phone and laptop to the same router. The ESP32 sends UDP to the laptop; the app reads its buffered stream. A laptop Ethernet cable or phone USB Ethernet adapter uses the same API address.'),
-                  Text('Current API: ${widget.api.baseUrl}'),
+                      'ESP32 sends measurements directly to this phone. Keep this screen open while capturing. Connect phone and ESP32 to the same LAN; router client isolation must be off.'),
+                  TextField(
+                      controller: _udpPort,
+                      enabled: idle && !_udp.active,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                          labelText: 'Collector UDP port')),
+                  Text(
+                      'UDP receiver: ${_udp.active ? "active on ${_udp.port}" : "inactive"}'),
+                  Text(
+                      'ESP32 sender: ${_udp.sourceIp ?? "waiting for a valid packet"}'),
+                  Text(
+                      'Datagrams: ${_udp.datagrams} | Invalid frames/datagrams: ${_udp.invalid} | Other senders ignored: ${_udp.ignored}'),
+                  Text(
+                      'ESP32 Wi-Fi: ${_wifiStatus?.label ?? "unknown (open BLE setup to check)"}'),
                   TextButton(
                       onPressed: idle
                           ? () => _run(() async {
@@ -403,23 +525,24 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
                                     .invokeMethod<void>('wifiSettings');
                               })
                           : null,
-                      child: const Text('Open Wi-Fi settings')),
+                      child: const Text('Open phone Wi-Fi settings')),
                   TextButton(
-                      onPressed: idle
-                          ? () => _run(() async {
-                                _network = await _platform
-                                        .invokeMethod<String>('network') ??
-                                    'Unknown';
-                                final sources =
-                                    await widget.api.deviceSources();
-                                _show(
-                                    'API reachable · ${sources.length} discovered sender(s).');
-                              })
-                          : null,
-                      child: const Text('Check network connection')),
-                  FilledButton(
-                      onPressed: idle ? () => _leave(true) : null,
-                      child: const Text('Use Wi-Fi / UDP collector')),
+                      onPressed:
+                          idle && !_udp.active ? () => _run(_startUdp) : null,
+                      child: const Text('Start UDP receiver')),
+                  TextButton(
+                      onPressed: idle ? () => _run(_scanBle) : null,
+                      child: const Text('Scan BLE for Wi-Fi setup')),
+                  for (final device in _devices.values)
+                    ListTile(
+                        title:
+                            Text(device.name.isEmpty ? device.id : device.name),
+                        trailing: TextButton(
+                            onPressed: idle
+                                ? () => _run(() => _connectBle(device))
+                                : null,
+                            child:
+                                const Text('Connect BLE / configure Wi-Fi'))),
                 ]),
           if (_mode == 'BLE')
             DemoSection(
@@ -471,6 +594,13 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
                         'Board console: ${_usbParser.lastDiagnostic}'),
                 ]),
           Text(_status),
+          Text('BLE: ${_bleDeviceId == null ? "disconnected" : "connected"}'),
+          Text(
+              'Wi-Fi credentials: ${_credentialsSent ? "sent and acknowledged" : "not acknowledged in this connection"}'),
+          Text(
+              'API: ${_apiReachable ? "reachable" : "unreachable"} | Storage: $_apiStorage'),
+          Text(
+              'Database upload: ${_uploadActive ? "active / retrying saved frames" : "idle"}'),
           if (_linked && _bleDeviceId != null)
             TextButton(
                 onPressed: !_working
@@ -479,20 +609,32 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
                         MaterialPageRoute(
                             builder: (_) => DeviceWifiSettings(
                                 transport: BleProvisioningTransport(
-                                    _ble, _bleDeviceId!))))
+                                    _ble, _bleDeviceId!),
+                                configureCollector: true,
+                                collectorPort: _udp.active ? _udp.port : 5005,
+                                onStatus: _acceptWifiStatus,
+                                onCredentialsAcknowledged:
+                                    _credentialsAcknowledged)))
                     : null,
                 child: const Text('Settings · Wi-Fi')),
-          if (_mode != 'Wi-Fi') ...[
+          ...[
             const SizedBox(height: 14),
+            MeasurementSourceBadge(
+                _capture.latest?.sourceLabel ?? 'UNKNOWN SOURCE / NO DATA'),
             Text(_linked
-                ? (fresh
-                    ? 'Receiving measurements'
-                    : 'Connected · no recent measurements')
+                ? (fresh ? 'Receiving measurements' : 'STALE / NO LIVE DATA')
                 : 'Disconnected'),
             Text(
                 'Received: ${_capture.received} · Invalid: ${_capture.invalid + _usbParser.invalid} · Duplicates: ${_capture.duplicates}'),
             Text(
                 'Uploaded: ${_capture.uploaded} · Saved pending: ${_log.visiblePending(widget.api)} · Waiting to save: ${_capture.queued}'),
+            Text(
+                'Transport: $_mode · Sequence: ${_capture.integrity.lastSequence ?? '-'} · Missing sequence slots: ${_capture.integrity.missing} · Out of order: ${_capture.integrity.outOfOrder} · Restarts (estimated): ${_capture.integrity.restarts} · Invalid timestamps: ${_capture.integrity.invalidTimestamps}'),
+            Text(
+                'Frame age: ${_capture.receivedAt == null ? '-' : DateTime.now().difference(_capture.receivedAt!).inMilliseconds} ms · BLE has no application CRC; USB invalid frames: ${_usbParser.invalid}'),
+            if (_mode == 'BLE')
+              const Text(
+                  'BLE receives latest frames at 10 Hz. Skipped acquisition sequence slots include intentional downsampling.'),
             if (_capture.overflow > 0)
               const Text(
                   'Capture stopped: receive buffer full. Restore uploads before restarting.'),
@@ -502,8 +644,9 @@ class _DeviceConnectionsState extends State<DeviceConnections> {
                 decoration: const InputDecoration(labelText: 'Session name')),
             Wrap(spacing: 8, children: [
               TextButton(
-                  onPressed:
-                      idle && _linked ? () => _run(_createSession) : null,
+                  onPressed: idle && _linked && _serial != null
+                      ? () => _run(_createSession)
+                      : null,
                   child: const Text('Create session')),
               FilledButton(
                   onPressed: _ready &&

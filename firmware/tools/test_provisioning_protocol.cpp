@@ -236,3 +236,26 @@ constexpr bool networkInfoTests()
         encodeFragment(packet, 0, 0, object, 38, 0, WIFI_CREDENTIALS) == 0;
 }
 static_assert(networkInfoTests(), "NETWORK_INFO default-MTU fragmentation regression");
+
+constexpr bool collectorTests()
+{
+    const std::uint8_t object[] = {1, 0, 'A', 192, 168, 1, 42, 19, 141};
+    std::uint8_t packet[] = {1, WIFI_COLLECTOR_CREDENTIALS, 7, 0, 0, 9, 9, 0,0,0,0,0,0,0,0,0};
+    for (unsigned i = 0; i < sizeof(object); ++i) packet[7+i] = object[i];
+    CredentialStaging stage;
+    stage.begin(7, 0);
+    if (stage.accept(packet, sizeof(packet), 1) != OK || stage.commit(7) != OK ||
+        stage.collector_port != 5005 || stage.collector_ipv4[3] != 42) return false;
+    stage.clear();
+    if (stage.collector_port || stage.collector_ipv4[0]) return false;
+    stage.begin(7, 0); packet[10] = 224;
+    if (stage.accept(packet, sizeof(packet), 1) != INVALID_PAYLOAD) return false;
+    stage.begin(7, 0); packet[10] = 192; packet[14] = packet[15] = 0;
+    if (stage.accept(packet, sizeof(packet), 1) != INVALID_PAYLOAD) return false;
+    stage.begin(7, 0); packet[14] = 19; packet[15] = 141;
+    packet[6] = 1;
+    if (stage.accept(packet, 8, 1) != OK) return false;
+    packet[1] = WIFI_CREDENTIALS;
+    return stage.accept(packet, 8, 2) == FRAGMENT_ERROR;
+}
+static_assert(collectorTests(), "Collector endpoint staging/validation regression");
