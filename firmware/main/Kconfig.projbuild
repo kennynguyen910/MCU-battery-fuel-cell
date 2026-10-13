@@ -1,0 +1,15 @@
+menu "Battery measurement source"
+choice BATTERY_ADC_SOURCE
+    prompt "ADC source (never automatically falls back)"
+    default BATTERY_ADC_SOURCE_NONE
+    help
+        Select FAKE explicitly for development. REAL requires a hardware driver
+        and currently fails compilation. NONE disables acquisition.
+config BATTERY_ADC_SOURCE_NONE
+    bool "Disabled (no measurement source)"
+config BATTERY_ADC_SOURCE_FAKE
+    bool "FAKE / simulated development measurements"
+config BATTERY_ADC_SOURCE_REAL
+    bool "REAL hardware (not implemented)"
+endchoice
+endmenu

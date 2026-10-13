@@ -1,6 +1,6 @@
 import dgram from 'node:dgram';
 import { performance } from 'node:perf_hooks';
-import { crc32 } from './device-udp.js';
+import { crc32, SAMPLE_STATUS_SIMULATED } from './device-udp.js';
 
 export const scenarios = Object.freeze({
   baseline: { label: 'Baseline', fps: 100, dropEvery: 0, corruptEvery: 0 },
@@ -25,6 +25,7 @@ export function encodeBatch(sequence, batchSequence, fps = 1000) {
     for (let channel = 0; channel < 16; channel++) {
       frame.writeInt32BE(Math.round(1_000_000 * (Math.sin(seq / 500 + channel / 4) + channel / 20)), 16 + channel * 4);
     }
+    frame.writeUInt32BE(SAMPLE_STATUS_SIMULATED, 80);
     frame.writeUInt32BE(crc32(frame.subarray(0, 84)), 84);
   }
   return bytes;

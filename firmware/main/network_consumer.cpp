@@ -4,6 +4,8 @@
 #include "packetizer.hpp"
 #include "udp_config.hpp"
 #include "esp_timer.h"
+#include "esp_log.h"
+#include <cstring>
 
 void NetworkConsumer::consumeFrame(void* context, const SampleFrame& frame)
 {
@@ -46,6 +48,20 @@ void NetworkConsumer::flush()
     if (!connected) {
         udp_.close();
         record(NetworkOutcome::WifiUnavailable);
+    } else if ([&] {
+        std::uint8_t ip[4]{};
+        std::uint16_t port{};
+        if (!wifi_.getCollectorEndpoint(ip, port)) return true;
+        if (port != collector_port_ || std::memcmp(ip, collector_ip_, 4)) {
+            if (!udp_.configure(ip, port)) return true;
+            std::memcpy(collector_ip_, ip, 4);
+            collector_port_ = port;
+            ESP_LOGI("network", "UDP collector %u.%u.%u.%u:%u", ip[0], ip[1], ip[2], ip[3], port);
+        }
+        return false;
+    }()) {
+        udp_.close();
+        record(NetworkOutcome::UdpNotReady);
     } else if (!udp_.isReady() && !udp_.init()) {
         record(NetworkOutcome::UdpNotReady, udp_.lastError());
     } else if (udp_.send(batch_.data(), length)) {

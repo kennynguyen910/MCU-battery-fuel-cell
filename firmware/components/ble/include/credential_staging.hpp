@@ -3,7 +3,7 @@
 
 namespace provisioning_protocol {
 inline constexpr unsigned MAX_PASSWORD_SIZE = 63;
-inline constexpr unsigned MAX_CREDENTIAL_SIZE = 2 + MAX_SSID_SIZE + MAX_PASSWORD_SIZE;
+inline constexpr unsigned MAX_CREDENTIAL_SIZE = 2 + MAX_SSID_SIZE + MAX_PASSWORD_SIZE + 6;
 inline constexpr std::uint32_t CREDENTIAL_TIMEOUT_MS = 60000;
 
 // Strict UTF-8, excluding NUL because wifi_cfg stores terminated strings.
@@ -41,6 +41,8 @@ struct CredentialStaging {
     std::uint8_t received[(MAX_CREDENTIAL_SIZE + 7) / 8]{};
     char ssid[MAX_SSID_SIZE + 1]{};
     char password[MAX_PASSWORD_SIZE + 1]{};
+    std::uint8_t collector_ipv4[4]{}, object_type{};
+    std::uint16_t collector_port{};
     unsigned total{}, count{};
     std::uint8_t transaction{};
     bool active{}, complete{};
@@ -52,6 +54,8 @@ struct CredentialStaging {
         for (auto& byte : received) byte = 0;
         for (auto& byte : ssid) byte = 0;
         for (auto& byte : password) byte = 0;
+        for (auto& byte : collector_ipv4) byte = 0;
+        collector_port = object_type = 0;
         total = count = transaction = last_activity = 0;
         active = complete = false;
     }
@@ -88,7 +92,8 @@ struct CredentialStaging {
     {
         if (length < DATA_HEADER_SIZE) return FRAGMENT_ERROR;
         if (bytes[0] != VERSION) return UNSUPPORTED_VERSION;
-        if (bytes[1] != WIFI_CREDENTIALS) return INVALID_COMMAND;
+        if (bytes[1] != WIFI_CREDENTIALS && bytes[1] != WIFI_COLLECTOR_CREDENTIALS) return INVALID_COMMAND;
+        if (object_type && object_type != bytes[1]) return FRAGMENT_ERROR;
         const auto error = checkTransaction(bytes[2]);
         if (error != OK) return error;
         if (expired(now)) return TIMEOUT;
@@ -104,6 +109,7 @@ struct CredentialStaging {
                 return FRAGMENT_ERROR;
         }
         total = size;
+        object_type = bytes[1];
         for (unsigned i = 0; i < chunk; ++i) {
             const unsigned at = offset + i;
             if (!(received[at / 8] & (1u << (at % 8)))) {
@@ -116,13 +122,20 @@ struct CredentialStaging {
         if (count != total) return OK;
         const unsigned ssid_length = raw[0], password_length = raw[1];
         if (!ssid_length || ssid_length > MAX_SSID_SIZE) return INVALID_SSID;
-        if (password_length > MAX_PASSWORD_SIZE || total != 2 + ssid_length + password_length ||
+        if (password_length > MAX_PASSWORD_SIZE || total != 2 + ssid_length + password_length + (object_type == WIFI_COLLECTOR_CREDENTIALS ? 6 : 0) ||
             (password_length != 0 && password_length < 8)) return INVALID_PASSWORD;
         if (!validCredentialUtf8(raw + 2, ssid_length)) return INVALID_SSID;
         if (!validCredentialUtf8(raw + 2 + ssid_length, password_length)) return INVALID_PASSWORD;
         for (unsigned i = 0; i < ssid_length; ++i) ssid[i] = raw[2 + i];
         for (unsigned i = 0; i < password_length; ++i) password[i] = raw[2 + ssid_length + i];
         ssid[ssid_length] = password[password_length] = 0;
+        if (object_type == WIFI_COLLECTOR_CREDENTIALS) {
+            const auto offset = 2 + ssid_length + password_length;
+            for (unsigned i = 0; i < 4; ++i) collector_ipv4[i] = raw[offset + i];
+            collector_port = (static_cast<unsigned>(raw[offset + 4]) << 8) | raw[offset + 5];
+            if (!collector_port || collector_ipv4[0] == 0 || collector_ipv4[0] == 127 ||
+                collector_ipv4[0] >= 224) return INVALID_PAYLOAD;
+        }
         complete = true;
         return OK;
     }

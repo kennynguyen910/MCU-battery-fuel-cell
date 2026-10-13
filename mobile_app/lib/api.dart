@@ -148,7 +148,7 @@ class Api {
       'startTime': startTime,
       'notes': deviceIp == null
           ? 'Manually entered values; not hardware measurements.'
-          : 'ESP32 UDP source $deviceIp; receiver timestamps from the buffered stream.',
+          : 'UNVERIFIED SOURCE (may contain simulated data). ESP32 UDP source $deviceIp; frame status is retained locally, not in database rows.',
     });
     return session['sessionId'] as String;
   }
@@ -169,7 +169,7 @@ class Api {
       'sessionName': name,
       'startTime': DateTime.now().toUtc().toIso8601String(),
       'notes':
-          'Direct Android $label. Device intervals anchored to phone UTC; not a synchronized device clock.',
+          'UNVERIFIED SOURCE (may contain simulated data). Direct Android $label. Device intervals anchored to phone UTC; status and raw device time retained locally, not in database rows.',
     });
     return session['sessionId'] as String;
   }

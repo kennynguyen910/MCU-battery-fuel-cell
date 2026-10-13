@@ -8,6 +8,7 @@ bool FakeADC::init()
 
 bool FakeADC::readFrame(SampleFrame& frame)
 {
+    frame.status |= SAMPLE_STATUS_SIMULATED;
     // 200-read triangular cycle: offset rises 0 -> 100000 uV and falls to 0.
     // First frame preserves the original 1000000 + channel * 10000 pattern.
     // Across all channels and phases, values stay in [1000000, 1250000] uV.

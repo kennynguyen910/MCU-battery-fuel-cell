@@ -39,8 +39,8 @@ void main() {
       final name =
           'Android buffered verification ${DateTime.now().toUtc().toIso8601String()}';
       final sessionId = await api.createSession(name, deviceIp: '127.0.0.1');
-      await tester.pumpWidget(
-          MaterialApp(home: Dashboard(role: AppRole.mobile, api: api)));
+      await tester.pumpWidget(MaterialApp(
+          home: Dashboard(benchRelay: true, role: AppRole.mobile, api: api)));
       await waitSeconds(2);
       await seek('Manual test input', 300);
       await tester.tap(find.text('Manual test input'));

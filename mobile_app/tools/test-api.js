@@ -17,7 +17,7 @@ try {
   } finally { await isolated.end(); }
   console.log('API tests use a temporary isolated database. App records stay unchanged.');
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--test'], {
+    const child = spawn(process.execPath, ['--test', '--test-concurrency=1'], {
       cwd: new URL('../apps/api/', import.meta.url), windowsHide: true, stdio: 'inherit',
       env: { ...process.env, TEST_DATABASE_URL: testUrl, DATABASE_SSL_CA: '' },
     });

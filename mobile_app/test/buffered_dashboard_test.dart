@@ -78,7 +78,8 @@ void main() {
             disk = s;
           });
       await tester.pumpWidget(MaterialApp(
-          home: Dashboard(role: AppRole.mobile, api: api, log: log)));
+          home: Dashboard(
+              benchRelay: true, role: AppRole.mobile, api: api, log: log)));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Manual test input'));
       await tester.pumpAndSettle();

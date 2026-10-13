@@ -63,3 +63,11 @@ The branch is for later review and merge; main is unchanged. SDKs, generated
 binaries, local databases, capture logs, and secrets are recreated locally and
 excluded from Git. All app source, platform hosts, schemas, tests, launchers,
 lockfiles, documentation, and this specification are included.
+
+## Collector endpoint extension
+
+The user-directed production Android path adds Data object type 4 for credentials
+plus collector IPv4/port. Existing v1 objects, UUIDs and measurement formats remain
+compatible. Both app and firmware must support the extension for direct Wi-Fi
+collection. See [production flow and independent boundary checks](../../docs/flutter-first-udp.md).
+Physical security, NVS persistence and throughput acceptance still require hardware tests.

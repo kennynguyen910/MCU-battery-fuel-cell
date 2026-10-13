@@ -39,6 +39,7 @@ void main() {
     });
     await tester.pumpWidget(MaterialApp(
         home: Dashboard(
+      benchRelay: true,
       role: AppRole.mobile,
       api: Api(client: client),
       log: CaptureLog(read: () async => null, write: (_) async {}),

@@ -34,6 +34,49 @@ Future<void> submit(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+      'Android collector setup sends endpoint in the encrypted credential transaction',
+      (tester) async {
+    final fake = FakeProvisioning();
+    addTearDown(fake.close);
+    await tester.pumpWidget(MaterialApp(
+        home: DeviceWifiSettings(
+            transport: fake, configureCollector: true, collectorPort: 5005)));
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextField);
+    expect(tester.widget<TextField>(fields.at(0)).enabled, true);
+    expect(tester.widget<TextField>(fields.at(1)).enabled, true);
+    await tester.enterText(fields.at(0), 'Lab');
+    await tester.enterText(fields.at(1), 'example123');
+    await tester.ensureVisible(fields.at(2));
+    await tester.enterText(fields.at(2), '192.168.1.42');
+    await submit(tester);
+    final packets =
+        fake.writes.where((p) => p.length > 4 && p[1] == 4).toList();
+    expect(packets, isNotEmpty);
+    expect(
+        packets.expand((p) => p.skip(7)),
+        credentialObject('Lab', 'example123',
+            collectorAddress: '192.168.1.42', collectorPort: 5005));
+    expect(fake.writes.where((p) => p.length == 4).map((p) => p[1]), [3, 4]);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'failed discovery can retry without enabling credential fields prematurely',
+      (tester) async {
+    final fake = FakeProvisioning()..noService = true;
+    await open(tester, fake);
+    expect(
+        tester.widget<TextField>(find.byType(TextField).first).enabled, false);
+    fake.noService = false;
+    await tester.tap(find.text('Refresh Wi-Fi status'));
+    await tester.pumpAndSettle();
+    expect(
+        tester.widget<TextField>(find.byType(TextField).first).enabled, true);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('screen loads existing status and IP without inventing an SSID',
       (tester) async {
     final fake = FakeProvisioning()..status = [1, 2, 9, 0, 192, 168, 1, 42];

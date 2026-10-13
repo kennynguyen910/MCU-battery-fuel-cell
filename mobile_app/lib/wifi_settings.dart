@@ -1,12 +1,23 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'wifi_transport.dart';
 import 'wifi_protocol.dart';
 import 'wifi_provisioning.dart';
 
 class DeviceWifiSettings extends StatefulWidget {
   final ProvisioningTransport transport;
-  const DeviceWifiSettings({super.key, required this.transport});
+  final bool configureCollector;
+  final int collectorPort;
+  final void Function(WifiStatus)? onStatus;
+  final VoidCallback? onCredentialsAcknowledged;
+  const DeviceWifiSettings(
+      {super.key,
+      required this.transport,
+      this.configureCollector = false,
+      this.collectorPort = 5005,
+      this.onStatus,
+      this.onCredentialsAcknowledged});
   @override
   State<DeviceWifiSettings> createState() => _DeviceWifiSettingsState();
 }
@@ -16,17 +27,35 @@ class _DeviceWifiSettingsState extends State<DeviceWifiSettings> {
       WifiProvisioning(widget.transport);
   final _ssid = TextEditingController(), _password = TextEditingController();
   final _ssidFocus = FocusNode();
+  final _collector = TextEditingController();
   bool _showPassword = false, _confirming = false;
   @override
   void initState() {
     super.initState();
     _provisioning.addListener(_changed);
     unawaited(_provisioning.initialize());
+    if (widget.configureCollector) unawaited(_loadCollector());
+  }
+
+  Future<void> _loadCollector() async {
+    try {
+      final address = await const MethodChannel('capstone/connectivity')
+          .invokeMethod<String>('collectorIpv4');
+      if (mounted && _collector.text.isEmpty) {
+        setState(() => _collector.text = address ?? '');
+      }
+    } on PlatformException {
+      /* Manual entry remains available. */
+    } on MissingPluginException {/* Widget tests and non-Android previews. */}
   }
 
   void _changed() {
     if (!mounted) return;
     if (_provisioning.phase == ProvisioningPhase.disconnected) _clearPassword();
+    if (_provisioning.credentialsAcknowledged)
+      widget.onCredentialsAcknowledged?.call();
+    final status = _provisioning.status;
+    if (status != null) widget.onStatus?.call(status);
     setState(() {});
   }
 
@@ -49,8 +78,11 @@ class _DeviceWifiSettingsState extends State<DeviceWifiSettings> {
           _password.text.isEmpty) {
         validation = 'Enter the password for this secured network.';
       } else {
-        object =
-            credentialObject(ssid, selected?.auth == 0 ? '' : _password.text);
+        object = credentialObject(
+            ssid, selected?.auth == 0 ? '' : _password.text,
+            collectorAddress:
+                widget.configureCollector ? _collector.text.trim() : null,
+            collectorPort: widget.collectorPort);
       }
     } on FormatException catch (error) {
       validation = error.message;
@@ -91,7 +123,10 @@ class _DeviceWifiSettingsState extends State<DeviceWifiSettings> {
     final password = _password.text;
     _clearPassword();
     setState(() {});
-    await _provisioning.provision(ssid, password);
+    await _provisioning.provision(ssid, password,
+        collectorAddress:
+            widget.configureCollector ? _collector.text.trim() : null,
+        collectorPort: widget.collectorPort);
   }
 
   @override
@@ -99,6 +134,7 @@ class _DeviceWifiSettingsState extends State<DeviceWifiSettings> {
     _provisioning.removeListener(_changed);
     _provisioning.dispose();
     _ssid.dispose();
+    _collector.dispose();
     _clearPassword();
     _password.dispose();
     _ssidFocus.dispose();
@@ -135,7 +171,9 @@ class _DeviceWifiSettingsState extends State<DeviceWifiSettings> {
                   ? 'Change network · Scan Wi-Fi'
                   : 'Set Up Wi-Fi · Scan Wi-Fi')),
           TextButton(
-              onPressed: enabled ? model.refresh : null,
+              onPressed: !model.busy && !_confirming
+                  ? () => model.available ? model.refresh() : model.initialize()
+                  : null,
               child: const Text('Refresh Wi-Fi status')),
           for (final network in networks)
             ListTile(
@@ -186,6 +224,16 @@ class _DeviceWifiSettingsState extends State<DeviceWifiSettings> {
                       icon: Icon(_showPassword
                           ? Icons.visibility_off
                           : Icons.visibility)))),
+          if (widget.configureCollector) ...[
+            TextField(
+                controller: _collector,
+                enabled: enabled,
+                decoration: const InputDecoration(
+                    labelText: 'Phone collector IPv4',
+                    helperText:
+                        'Phone and ESP32 must be on the same reachable LAN.')),
+            Text('Collector UDP port: ${widget.collectorPort}'),
+          ],
           FilledButton(
               onPressed: enabled ? _submit : null,
               child: const Text('Save and connect')),

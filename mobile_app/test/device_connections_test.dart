@@ -32,8 +32,8 @@ void main() {
     expect(find.textContaining('diagnostic text only'), findsOneWidget);
     await tester.tap(find.text('Wi-Fi').first);
     await tester.pumpAndSettle();
-    expect(find.text('Use Wi-Fi / UDP collector'), findsOneWidget);
-    expect(find.text('Open Wi-Fi settings'), findsOneWidget);
+    expect(find.text('Direct Wi-Fi / UDP collector'), findsOneWidget);
+    expect(find.text('Open phone Wi-Fi settings'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     api.close();

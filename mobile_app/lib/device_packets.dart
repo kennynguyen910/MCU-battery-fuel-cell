@@ -1,9 +1,20 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+const sampleStatusSimulated = 0x80000000;
+
+// Older firmware emits status=0 even for FakeADC. Absence is not proof of hardware.
+String measurementSource(int? status) => status == null
+    ? 'UNKNOWN SOURCE'
+    : (status & sampleStatusSimulated) != 0
+        ? 'SIMULATED DATA'
+        : 'UNKNOWN SOURCE (unverified hardware)';
+
 class DeviceSample {
   final int sequence, timestampUs, status;
   final List<double> channels;
+  bool get simulated => (status & sampleStatusSimulated) != 0;
+  String get sourceLabel => measurementSource(status);
   DeviceSample(this.sequence, this.timestampUs, this.status, this.channels);
 }
 
@@ -83,4 +94,36 @@ class UsbMeasurementLines {
     }
     return result;
   }
+}
+
+/// A sound batch can retain valid neighbors of a corrupt measurement frame.
+class UdpMeasurements {
+  final List<DeviceSample> frames;
+  final int invalidFrames;
+  UdpMeasurements(this.frames, this.invalidFrames);
+}
+
+UdpMeasurements decodeUdpMeasurements(List<int> bytes) {
+  final frames = <DeviceSample>[];
+  var invalid = 0;
+  if (bytes.length == 88) {
+    return UdpMeasurements([decodeUsbMeasurement(bytes)], 0);
+  }
+  if (bytes.length < 10) throw const FormatException('Short UDP batch');
+  final data = ByteData.sublistView(Uint8List.fromList(bytes));
+  if (data.getUint16(0) != 0x4242 || bytes[2] != 1 || bytes[3] != 2) {
+    throw const FormatException('Invalid UDP batch header');
+  }
+  final count = data.getUint16(4);
+  if (count < 1 || count > 10 || bytes.length != 10 + count * 88) {
+    throw const FormatException('Invalid UDP batch length');
+  }
+  for (var i = 0; i < count; i++) {
+    try {
+      frames.add(decodeUsbMeasurement(bytes.sublist(10 + i * 88, 98 + i * 88)));
+    } on FormatException {
+      invalid++;
+    }
+  }
+  return UdpMeasurements(frames, invalid);
 }

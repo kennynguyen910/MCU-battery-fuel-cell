@@ -8,6 +8,7 @@ import 'buffered_capture.dart';
 import 'history.dart';
 import 'demo_widgets.dart';
 import 'device_connections.dart';
+import 'device_packets.dart';
 
 /// The role controls capabilities, not merely labels: input publishes transient
 /// frames, mobile captures/uploads, and web reads stored history.
@@ -58,7 +59,13 @@ class Dashboard extends StatefulWidget {
   final AppRole role;
   final Api? api;
   final CaptureLog? log;
-  const Dashboard({super.key, required this.role, this.api, this.log});
+  final bool benchRelay;
+  const Dashboard(
+      {super.key,
+      required this.role,
+      this.api,
+      this.log,
+      this.benchRelay = false});
   @override
   State<Dashboard> createState() => _DashboardState();
 }
@@ -81,6 +88,7 @@ class _DashboardState extends State<Dashboard> {
   int storedMeasurementCount = 0;
   bool historyTruncated = false;
   List<double>? live;
+  int? liveStatus;
   bool loginRequired = false, deviceMode = false;
   List<dynamic> deviceSources = [];
   String? deviceIp;
@@ -215,6 +223,8 @@ class _DashboardState extends State<Dashboard> {
             frame = await api.request('/test-input');
           }
           if (!mounted) return;
+          liveStatus = frame == null ? null : frame['deviceStatus'] as int?;
+          if (frame == null) live = null;
           if (frame != null) {
             // Displaying a frame does not mean it was captured or stored.
             live = (frame['channels'] as List)
@@ -223,6 +233,7 @@ class _DashboardState extends State<Dashboard> {
             invalidVoltage = live!.length != 16 ||
                 live!.any((v) => !v.isFinite || v < -5 || v > 5);
           }
+          if (invalidVoltage) live = null;
           if (capturing && selected != null && !deviceMode) {
             final sessionId = selected!;
             if (frame != null &&
@@ -242,7 +253,7 @@ class _DashboardState extends State<Dashboard> {
           if (!deviceMode) await retryUploads();
           missedBufferedFrames = buffered.missed;
           captureSummary = invalidVoltage
-              ? 'Device frame outside ±5 V or incomplete; shown but not uploaded.'
+              ? 'Device frame outside ±5 V or incomplete; rejected.'
               : 'Uploaded $uploaded frame(s) in this app run. Pending: ${log.visiblePending(api)}. Buffer losses: $missedBufferedFrames.';
         } else if (selected != null) {
           // Remember both values so an older response cannot overwrite a newer
@@ -277,6 +288,8 @@ class _DashboardState extends State<Dashboard> {
             rows = [];
             notice = 'Please log in to continue. Capture is stopped.';
           }
+          live = null;
+          liveStatus = null;
           status = 'Disconnected / stale: $error';
         });
     } finally {
@@ -626,7 +639,7 @@ class _DashboardState extends State<Dashboard> {
       });
   }
 
-  Future<void> openDeviceConnections() async {
+  Future<void> openDeviceConnections({String initialMode = 'BLE'}) async {
     if (action || capturing || pendingDeletion != null) return;
     setState(() => action = true);
     try {
@@ -637,11 +650,14 @@ class _DashboardState extends State<Dashboard> {
       buffered.stop();
       await buffered.idle;
       if (!mounted) return;
-      final wifi = await Navigator.push<bool>(context,
-          MaterialPageRoute(builder: (_) => DeviceConnections(api: api)));
+      final wifi = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+              builder: (_) =>
+                  DeviceConnections(api: api, initialMode: initialMode)));
       // The direct receiver owned this file while polling was paused.
       await log.load();
-      if (mounted && wifi == true)
+      if (mounted && wifi == true && kIsWeb)
         setState(() {
           deviceMode = true;
           selected = null;
@@ -860,17 +876,26 @@ class _DashboardState extends State<Dashboard> {
               DemoSection(
                   title: '1. Select and pair a device',
                   subtitle:
-                      'Choose manual input or a sender connected to the laptop receiver.',
+                      'Use the native Android collector for ESP32 data, or manual input for testing.',
                   children: [
+                    if (!kIsWeb)
+                      FilledButton(
+                          onPressed: ready && !capturing
+                              ? () =>
+                                  openDeviceConnections(initialMode: 'Wi-Fi')
+                              : null,
+                          child: const Text(
+                              'Direct Android Wi-Fi / UDP collector')),
                     DropdownButton<bool>(
                         value: deviceMode,
                         isExpanded: true,
-                        items: const [
+                        items: [
                           DropdownMenuItem(
                               value: false, child: Text('Manual test input')),
-                          DropdownMenuItem(
-                              value: true,
-                              child: Text('ESP32 over laptop Wi-Fi / UDP'))
+                          if (kIsWeb || widget.benchRelay)
+                            const DropdownMenuItem(
+                                value: true,
+                                child: Text('ESP32 over laptop Wi-Fi / UDP'))
                         ],
                         onChanged: capturing || !ready
                             ? null
@@ -922,6 +947,16 @@ class _DashboardState extends State<Dashboard> {
                           'Estimated missing':
                               '${deviceMetrics['missingFrames'] ?? 0}',
                           'CRC errors': '${deviceMetrics['crcErrors'] ?? 0}',
+                          'Duplicates':
+                              '${deviceMetrics['duplicateFrames'] ?? 0}',
+                          'Out of order': '${deviceMetrics['lateFrames'] ?? 0}',
+                          'Malformed':
+                              '${deviceMetrics['invalidFrames'] ?? 0} frames / ${deviceMetrics['invalidDatagrams'] ?? 0} datagrams',
+                          'Sequence': '${deviceMetrics['lastSequence'] ?? '-'}',
+                          'Frame age (ms)':
+                              '${deviceMetrics['frameAgeMs'] ?? '-'}',
+                          'ADC source':
+                              '${deviceMetrics['adcSource'] ?? 'UNKNOWN'}',
                         }),
                         gap()
                       ],
@@ -1023,6 +1058,14 @@ class _DashboardState extends State<Dashboard> {
                             ? 'Capture waiting — sender offline'
                             : 'Capture running')
                         : 'Capture stopped — values are not uploaded'),
+                    MeasurementSourceBadge(deviceMode
+                        ? measurementSource(liveStatus)
+                        : 'MANUAL TEST INPUT / NOT HARDWARE'),
+                    Text(live == null
+                        ? 'NO LIVE DATA / STALE'
+                        : (deviceMode
+                            ? 'Live · Transport: UDP via API'
+                            : 'Last manual submission · not a live stream')),
                     if (captureSummary.isNotEmpty) Text(captureSummary),
                     gap(),
                     VoltageTiles(List.generate(
@@ -1077,6 +1120,8 @@ class _DashboardState extends State<Dashboard> {
                   subtitle:
                       'Review values saved by the collector in the selected session.',
                   children: [
+                    const MeasurementSourceBadge(
+                        'HISTORICAL DATA / SOURCE UNVERIFIED: may include simulated or manual readings. Frame status is not stored in the database.'),
                     HistoryPanel(
                         rows: rows,
                         onFilter: (from, to) {

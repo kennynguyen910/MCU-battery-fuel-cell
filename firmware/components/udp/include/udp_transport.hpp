@@ -14,6 +14,7 @@ public:
     UdpTransport(const UdpTransport&) = delete;
     UdpTransport& operator=(const UdpTransport&) = delete;
 
+    bool configure(const std::uint8_t ipv4[4], std::uint16_t port);
     bool init();
     bool send(const std::uint8_t* data, std::size_t length);
     void close();

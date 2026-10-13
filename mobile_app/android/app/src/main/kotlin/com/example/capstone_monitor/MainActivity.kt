@@ -20,6 +20,17 @@ class MainActivity : FlutterActivity() {
                         startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
                         result.success(null)
                     }
+                    "collectorIpv4" -> {
+                        val manager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                        val network = manager.activeNetwork
+                        val caps = manager.getNetworkCapabilities(network)
+                        val lan = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                            caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+                        val address = if (lan) manager.getLinkProperties(network)?.linkAddresses
+                            ?.map { it.address }?.firstOrNull { it is java.net.Inet4Address && !it.isLoopbackAddress }
+                            ?.hostAddress else null
+                        result.success(address)
+                    }
                     "network" -> {
                         val manager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
                         val caps = manager.getNetworkCapabilities(manager.activeNetwork)

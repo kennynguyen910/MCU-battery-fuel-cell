@@ -27,7 +27,7 @@ const auth = store.pool ? new DatabaseAuth(store.pool)
   : hasAuthSetting ? new SingleUserAuth(process.env.APP_USERNAME, process.env.APP_PASSWORD) : undefined;
 if (auth instanceof DatabaseAuth)
   await auth.initialize(process.env.APP_USERNAME, process.env.APP_PASSWORD);
-const deviceEnabled = process.env.DEVICE_UDP_ENABLED === '1' || Boolean(process.env.DEVICE_IP);
+const deviceEnabled = process.env.BENCH_DEVICE_UDP_ENABLED === '1';
 if (deviceEnabled && !auth) {
   throw new Error('Set APP_USERNAME and APP_PASSWORD before enabling the ESP32 receiver');
 }
@@ -54,8 +54,8 @@ if (simulationEnabled) {
 const server = app.listen(port, () => {
   console.log(`API listening on http://localhost:${port} (${process.env.DATABASE_URL ? "PostgreSQL" : "demo memory"} mode)`);
 });
-// The ESP32 sends datagrams to the laptop, not to a phone. Enable this listener
-// only for an explicitly configured bench network. DEVICE_IP can limit senders.
+// Bench/test relay only. Production ESP32 datagrams go directly to Android.
+// Opt in with BENCH_DEVICE_UDP_ENABLED=1; DEVICE_IP can limit test senders.
 let deviceSocket;
 if (deviceEnabled) {
   const devicePort = Number(process.env.DEVICE_UDP_PORT || 5005);

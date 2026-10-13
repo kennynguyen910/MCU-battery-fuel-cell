@@ -45,7 +45,7 @@ export class DeviceReceiver {
     const source = this.sources.get(sourceIp) || {
       sourceIp, frame: null, receivedFrames: 0, uniqueFrames: 0, receivedDatagrams: 0,
       missingFrames: 0, duplicateFrames: 0, lateFrames: 0, restartEstimates: 0,
-      invalidFrames: 0, invalidDatagrams: 0, crcErrors: 0, lastReceivedAt: null,
+      invalidFrames: 0, invalidDatagrams: 0, crcErrors: 0, invalidTimestamps: 0, lastReceivedAt: null,
       lastSequence: null, lastTimestamp: null, rate: [], recent: new FrameRing(this.capacity),
       bufferDroppedFrames: 0, streamId: randomUUID(), lastRecordedUs: 0n, clockOffsetUs: null,
     };
@@ -70,6 +70,9 @@ export class DeviceReceiver {
         if (restart) { source.restartEstimates++; source.clockOffsetUs = null; }
         else if (delta === 0) { source.duplicateFrames++; continue; }
         else if (delta >= 0x80000000) { source.lateFrames++; continue; }
+        else if (timestamp <= source.lastTimestamp && frame.sequence > source.lastSequence) {
+          source.invalidTimestamps++; continue;
+        }
         else source.missingFrames += delta - 1;
       }
       source.lastSequence = frame.sequence;
@@ -128,6 +131,9 @@ export class DeviceReceiver {
     return { ...publicState,
       bufferedFrames: recent.length, bufferCapacity: this.capacity,
       framesPerSecond: rate.filter(entry => this.now() - entry.time < 1000).reduce((sum, e) => sum + e.count, 0),
+      adcSource: source.frame?.adcSource ?? 'UNKNOWN',
+      transport: 'UDP',
+      frameAgeMs: source.lastReceivedAt ? Math.max(0, this.now() - Date.parse(source.lastReceivedAt)) : null,
       stale: !source.lastReceivedAt || this.now() - Date.parse(source.lastReceivedAt) > 5000,
       lossPercent: source.uniqueFrames + source.missingFrames === 0 ? 0 :
         100 * source.missingFrames / (source.uniqueFrames + source.missingFrames),
