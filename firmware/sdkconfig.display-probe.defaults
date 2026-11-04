@@ -1,0 +1,4 @@
+# Optional diagnostic; verify supply and pull-up voltage before connecting.
+CONFIG_BATTERY_DISPLAY_PROBE=y
+# The diagnostic exceeds the default 1 MiB app slot; NVS offsets are unchanged.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

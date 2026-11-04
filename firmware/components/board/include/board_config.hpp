@@ -29,6 +29,9 @@ struct BoardConfig
     int OLED_SDA = GPIO_TBD;
     int OLED_SCL = GPIO_TBD;
     int STATUS_LED = GPIO_TBD;
+
+    int DISPLAY_SDA = GPIO_TBD;
+    int DISPLAY_SCL = GPIO_TBD;
 };
 
 // Future drivers use board::config.<signal> instead of hardcoded GPIO numbers.

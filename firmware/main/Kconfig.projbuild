@@ -13,3 +13,38 @@ config BATTERY_ADC_SOURCE_REAL
     bool "REAL hardware (not implemented)"
 endchoice
 endmenu
+
+menu "Battery display diagnostic"
+config BATTERY_DISPLAY_PROBE
+    bool "Enable one-shot I2C address diagnostic (no LCD commands)"
+    default n
+    help
+        Verify the LCD supply and external pull-up voltage BEFORE connecting.
+        An address ACK does not identify the controller. Runs independently
+        of acquisition. Classic ESP32 uses SDA21/SCL22. S3 pins default unset.
+config BATTERY_LCD_STARTUP_TEST
+    bool "Write Gravity V1.0 LCD1602 startup message (0x3E/0x60)"
+    depends on BATTERY_DISPLAY_PROBE
+    default n
+    help
+        Explicitly select the documented Gravity V1.0 LCD/backlight protocol.
+        After the address scan, initialize 0x3E and 0x60 and write two fixed
+        rows. Never send commands to 0x70. Verify wiring and voltage first.
+config BATTERY_LCD_CYCLING
+    bool "Enable cycling LCD1602 measurement/status display"
+    depends on !BATTERY_DISPLAY_PROBE
+    default n
+    help
+        Separate from scan/fixed-message diagnostics. Reads LatestFrameStore
+        without consuming network frames. Uses the verified 0x3E/0x60 profile.
+config BATTERY_DISPLAY_S3_SDA
+    int "Verified S3 display SDA GPIO (-1 disables scan)"
+    depends on (BATTERY_DISPLAY_PROBE || BATTERY_LCD_CYCLING) && IDF_TARGET_ESP32S3
+    range -1 48
+    default -1
+config BATTERY_DISPLAY_S3_SCL
+    int "Verified S3 display SCL GPIO (-1 disables scan)"
+    depends on (BATTERY_DISPLAY_PROBE || BATTERY_LCD_CYCLING) && IDF_TARGET_ESP32S3
+    range -1 48
+    default -1
+endmenu

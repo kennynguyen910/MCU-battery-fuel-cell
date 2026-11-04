@@ -1,0 +1,3 @@
+# Separate cycling mode; scan and fixed-message profiles remain available.
+CONFIG_BATTERY_LCD_CYCLING=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

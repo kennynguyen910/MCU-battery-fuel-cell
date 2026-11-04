@@ -15,6 +15,13 @@
 #include "udp_config.hpp"
 #include "ble_manager.hpp"
 #include "ble_config.hpp"
+#if CONFIG_BATTERY_LCD_CYCLING
+#include "lcd_display.hpp"
+#endif
+
+#if CONFIG_BATTERY_DISPLAY_PROBE
+void startDisplayProbe();
+#endif
 
 // DEVELOPMENT ONLY: run the fixed packetizer self-test once at startup.
 constexpr bool ENABLE_PACKETIZER_SELF_TEST = true;
@@ -24,6 +31,10 @@ extern "C" void app_main()
     constexpr const char* TAG = "battery_monitor";
     ESP_LOGI(TAG, "Battery/Fuel Cell Monitor starting");
     ESP_LOGI(TAG, "Board target: %s", board::config.target_name);
+
+#if CONFIG_BATTERY_DISPLAY_PROBE
+    startDisplayProbe();
+#endif
 
     if constexpr (ENABLE_PACKETIZER_SELF_TEST) {
         if (packetizer_test::runSelfTest()) {
@@ -37,6 +48,16 @@ extern "C" void app_main()
     static WiFiManager wifi;
     static Diagnostics diagnostics;
     static LatestFrameStore latest;
+#if CONFIG_BATTERY_LCD_CYCLING
+    static LcdDisplayInputs display_inputs{latest, wifi,
+#if CONFIG_BATTERY_ADC_SOURCE_FAKE
+        true
+#else
+        false
+#endif
+    };
+    startLcdDisplay(display_inputs);
+#endif
 #if CONFIG_BATTERY_ADC_SOURCE_FAKE
     ESP_LOGW(TAG, "========================================");
     ESP_LOGW(TAG, "ADC SOURCE: FAKE / SIMULATED DATA");
@@ -68,6 +89,9 @@ extern "C" void app_main()
         static BLEManager ble(latest, diagnostics,
             [](void* context) { return static_cast<WiFiManager*>(context)->isConnected(); },
             &wifi, wifi);
+#if CONFIG_BATTERY_LCD_CYCLING
+        display_inputs.ble.store(&ble);
+#endif
 #if CONFIG_BATTERY_ADC_SOURCE_FAKE
         ble.setAcquisitionRunning(true);
 #else
