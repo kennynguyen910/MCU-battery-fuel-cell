@@ -1,0 +1,4 @@
+# Explicit Gravity LCD1602 V1.0 startup test; scanner-only defaults are unchanged.
+CONFIG_BATTERY_DISPLAY_PROBE=y
+CONFIG_BATTERY_LCD_STARTUP_TEST=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
